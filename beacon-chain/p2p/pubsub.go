@@ -3,8 +3,10 @@ package p2p
 import (
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"strings"
 	"time"
+	"os"
 
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	pubsubpb "github.com/libp2p/go-libp2p-pubsub/pb"
@@ -44,6 +46,10 @@ const digestLength = 4
 
 // Specifies the prefix for any pubsub topic.
 const gossipTopicPrefix = "/eth2/"
+
+// Store score values in a file
+var score_file *os.File
+var score_err error
 
 // JoinTopic will join PubSub topic, if not already joined.
 func (s *Service) JoinTopic(topic string, opts ...pubsub.TopicOpt) (*pubsub.Topic, error) {
@@ -124,14 +130,57 @@ func (s *Service) SubscribeToTopic(topic string, opts ...pubsub.SubOpt) (*pubsub
 func (s *Service) peerInspector(peerMap map[peer.ID]*pubsub.PeerScoreSnapshot) {
 	// Iterate through all the connected peers and through any of their
 	// relevant topics.
+        for pid, snap := range peerMap {
+                s.peers.Scorers().GossipScorer().SetGossipData(pid, snap.Score,
+                        snap.BehaviourPenalty, convertTopicScores(snap.Topics))
+        }
+
+	if score_file == nil {
+		score_file, score_err = os.OpenFile("/data/beaconchaindata/peer-scores.json", os.O_CREATE|os.O_WRONLY, os.ModePerm)
+		if score_err != nil {
+			log.Info("error opening peer score output file: ", score_err)
+		}
+	}
+	enc := json.NewEncoder(score_file)
+
+	type entry struct {
+		Timestamp int64
+		PeerID    string
+		GossipScores    map[string]*pubsub.PeerScoreSnapshot
+		OtherScores     map[string][]float64
+	}
+	ts := time.Now().UnixNano()
+	gossipScores := make(map[string]*pubsub.PeerScoreSnapshot, len(peerMap))
+	otherScores  := make(map[string][]float64, len(peerMap))
+	var overallScore, badResponsesScorer, blockProviderScorer, peerStatusScorer float64
 	for pid, snap := range peerMap {
-		s.peers.Scorers().GossipScorer().SetGossipData(pid, snap.Score,
-			snap.BehaviourPenalty, convertTopicScores(snap.Topics))
+		// Get peer scoring data.
+		overallScore = s.peers.Scorers().Score(pid)
+		badResponsesScorer = s.peers.Scorers().BadResponsesScorer().Score(pid)
+		blockProviderScorer = s.peers.Scorers().BlockProviderScorer().Score(pid)
+		peerStatusScorer = s.peers.Scorers().PeerStatusScorer().Score(pid)
+		gossipScores[pid.Pretty()] = snap
+		otherScores[pid.Pretty()] = [] float64 {overallScore, badResponsesScorer, blockProviderScorer, peerStatusScorer}
+	}
+	e := entry{
+		Timestamp: ts,
+		PeerID:    s.host.ID().Pretty(),
+		GossipScores:    gossipScores,
+		OtherScores: otherScores,
+	}
+	err := enc.Encode(e)
+	if err != nil {
+		log.Info("error encoding peer scores:", err)
 	}
 }
 
 // Creates a list of pubsub options to configure out router with.
 func (s *Service) pubsubOptions() []pubsub.Option {
+	log.Info("Creating pubsub tracer...")
+	tracer, err := NewTestTracer("/data/beaconchaindata/tracer-output", s.host.ID(), true)
+	if err != nil {
+		log.Info("error making test tracer", err)
+	}
 	psOpts := []pubsub.Option{
 		pubsub.WithMessageSignaturePolicy(pubsub.StrictNoSign),
 		pubsub.WithNoAuthor(),
@@ -143,6 +192,7 @@ func (s *Service) pubsubOptions() []pubsub.Option {
 		pubsub.WithMaxMessageSize(int(params.BeaconNetworkConfig().GossipMaxSizeBellatrix)),
 		pubsub.WithValidateQueueSize(pubsubQueueSize),
 		pubsub.WithPeerScore(peerScoringParams()),
+		pubsub.WithEventTracer(tracer),
 		pubsub.WithPeerScoreInspect(s.peerInspector, time.Minute),
 		pubsub.WithGossipSubParams(pubsubGossipParam()),
 	}

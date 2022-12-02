@@ -23,6 +23,7 @@ go_library(
         "monitoring.go",
         "options.go",
         "pubsub.go",
+        "tracer.go",
         "pubsub_filter.go",
         "rpc_topic_mappings.go",
         "sender.go",
