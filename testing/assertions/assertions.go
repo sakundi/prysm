@@ -6,10 +6,11 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"sort"
 	"strings"
 
 	"github.com/d4l3k/messagediff"
-	"github.com/prysmaticlabs/prysm/v3/encoding/ssz/equality"
+	"github.com/prysmaticlabs/prysm/v4/encoding/ssz/equality"
 	"github.com/sirupsen/logrus/hooks/test"
 	"google.golang.org/protobuf/proto"
 )
@@ -21,6 +22,12 @@ type AssertionTestingTB interface {
 }
 
 type assertionLoggerFn func(string, ...interface{})
+
+func SprintfAssertionLoggerFn(s *string) assertionLoggerFn {
+	return func(ef string, eargs ...interface{}) {
+		*s = fmt.Sprintf(ef, eargs...)
+	}
+}
 
 // Equal compares values using comparison operator.
 func Equal(loggerFn assertionLoggerFn, expected, actual interface{}, msg ...interface{}) {
@@ -45,9 +52,42 @@ func DeepEqual(loggerFn assertionLoggerFn, expected, actual interface{}, msg ...
 	if !isDeepEqual(expected, actual) {
 		errMsg := parseMsg("Values are not equal", msg...)
 		_, file, line, _ := runtime.Caller(2)
-		diff, _ := messagediff.PrettyDiff(expected, actual)
+		diff := ""
+		if _, isProto := expected.(proto.Message); isProto {
+			diff = ProtobufPrettyDiff(expected, actual)
+		} else {
+			diff, _ = messagediff.PrettyDiff(expected, actual)
+		}
 		loggerFn("%s:%d %s, want: %#v, got: %#v, diff: %s", filepath.Base(file), line, errMsg, expected, actual, diff)
 	}
+}
+
+var protobufPrivateFields = map[string]bool{
+	"sizeCache": true,
+	"state":     true,
+}
+
+func ProtobufPrettyDiff(a, b interface{}) string {
+	d, _ := messagediff.DeepDiff(a, b)
+	var dstr []string
+	appendNotProto := func(path, str string) {
+		parts := strings.Split(path, ".")
+		if len(parts) > 1 && protobufPrivateFields[parts[1]] {
+			return
+		}
+		dstr = append(dstr, str)
+	}
+	for path, added := range d.Added {
+		appendNotProto(path.String(), fmt.Sprintf("added: %s = %#v\n", path.String(), added))
+	}
+	for path, removed := range d.Removed {
+		appendNotProto(path.String(), fmt.Sprintf("removed: %s = %#v\n", path.String(), removed))
+	}
+	for path, modified := range d.Modified {
+		appendNotProto(path.String(), fmt.Sprintf("modified: %s = %#v\n", path.String(), modified))
+	}
+	sort.Strings(dstr)
+	return strings.Join(dstr, "")
 }
 
 // DeepNotEqual compares values using DeepEqual.
@@ -75,6 +115,23 @@ func DeepNotSSZEqual(loggerFn assertionLoggerFn, expected, actual interface{}, m
 		errMsg := parseMsg("Values are equal", msg...)
 		_, file, line, _ := runtime.Caller(2)
 		loggerFn("%s:%d %s, want: %#v, got: %#v", filepath.Base(file), line, errMsg, expected, actual)
+	}
+}
+
+// StringContains checks whether a string contains specified substring. If flag is false, inverse is checked.
+func StringContains(loggerFn assertionLoggerFn, expected, actual string, flag bool, msg ...interface{}) {
+	if flag {
+		if !strings.Contains(actual, expected) {
+			errMsg := parseMsg("Expected substring is not found", msg...)
+			_, file, line, _ := runtime.Caller(2)
+			loggerFn("%s:%d %s, got: %v, want: %s", filepath.Base(file), line, errMsg, actual, expected)
+		}
+	} else {
+		if strings.Contains(actual, expected) {
+			errMsg := parseMsg("Unexpected substring is found", msg...)
+			_, file, line, _ := runtime.Caller(2)
+			loggerFn("%s:%d %s, got: %v, not want: %s", filepath.Base(file), line, errMsg, actual, expected)
+		}
 	}
 }
 

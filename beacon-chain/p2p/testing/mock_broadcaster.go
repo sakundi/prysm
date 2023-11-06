@@ -3,7 +3,7 @@ package testing
 import (
 	"context"
 
-	ethpb "github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1"
+	ethpb "github.com/prysmaticlabs/prysm/v4/proto/prysm/v1alpha1"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -30,6 +30,12 @@ func (m *MockBroadcaster) BroadcastAttestation(_ context.Context, _ uint64, a *e
 
 // BroadcastSyncCommitteeMessage records a broadcast occurred.
 func (m *MockBroadcaster) BroadcastSyncCommitteeMessage(_ context.Context, _ uint64, _ *ethpb.SyncCommitteeMessage) error {
+	m.BroadcastCalled = true
+	return nil
+}
+
+// BroadcastBlob broadcasts a blob for mock.
+func (m *MockBroadcaster) BroadcastBlob(context.Context, uint64, *ethpb.SignedBlobSidecar) error {
 	m.BroadcastCalled = true
 	return nil
 }

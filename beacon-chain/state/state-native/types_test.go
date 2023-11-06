@@ -6,14 +6,14 @@ import (
 	"strconv"
 	"testing"
 
-	statenative "github.com/prysmaticlabs/prysm/v3/beacon-chain/state/state-native"
-	fieldparams "github.com/prysmaticlabs/prysm/v3/config/fieldparams"
-	"github.com/prysmaticlabs/prysm/v3/config/params"
-	"github.com/prysmaticlabs/prysm/v3/encoding/bytesutil"
-	ethpb "github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1"
-	"github.com/prysmaticlabs/prysm/v3/runtime/interop"
-	"github.com/prysmaticlabs/prysm/v3/testing/assert"
-	"github.com/prysmaticlabs/prysm/v3/testing/require"
+	statenative "github.com/prysmaticlabs/prysm/v4/beacon-chain/state/state-native"
+	fieldparams "github.com/prysmaticlabs/prysm/v4/config/fieldparams"
+	"github.com/prysmaticlabs/prysm/v4/config/params"
+	"github.com/prysmaticlabs/prysm/v4/encoding/bytesutil"
+	ethpb "github.com/prysmaticlabs/prysm/v4/proto/prysm/v1alpha1"
+	"github.com/prysmaticlabs/prysm/v4/runtime/interop"
+	"github.com/prysmaticlabs/prysm/v4/testing/assert"
+	"github.com/prysmaticlabs/prysm/v4/testing/require"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/protobuf/proto"
 )
@@ -37,7 +37,7 @@ func TestBeaconState_ProtoBeaconStateCompatibility(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, r1, r2, "Mismatched roots")
 
-	// We then write to the the state and compare hash tree roots again.
+	// We then write to the state and compare hash tree roots again.
 	balances := genesis.Balances
 	balances[0] = 3823
 	require.NoError(t, customState.SetBalances(balances))
@@ -55,8 +55,8 @@ func setupGenesisState(tb testing.TB, count uint64) *ethpb.BeaconState {
 	genesisState, _, err := interop.GenerateGenesisState(context.Background(), 0, count)
 	require.NoError(tb, err, "Could not generate genesis beacon state")
 	for i := uint64(1); i < count; i++ {
-		someRoot := [32]byte{}
-		someKey := [fieldparams.BLSPubkeyLength]byte{}
+		var someRoot [32]byte
+		var someKey [fieldparams.BLSPubkeyLength]byte
 		copy(someRoot[:], strconv.Itoa(int(i)))
 		copy(someKey[:], strconv.Itoa(int(i)))
 		genesisState.Validators = append(genesisState.Validators, &ethpb.Validator{
@@ -185,7 +185,7 @@ func TestBeaconState_ImmutabilityWithSharedResources(t *testing.T) {
 
 	// Randao mixes
 	require.DeepEqual(t, a.RandaoMixes(), b.RandaoMixes(), "Test precondition failed, fields are not equal")
-	require.NoError(t, a.UpdateRandaoMixesAtIndex(1, []byte("foo")))
+	require.NoError(t, a.UpdateRandaoMixesAtIndex(1, bytesutil.ToBytes32([]byte("foo"))))
 	if reflect.DeepEqual(a.RandaoMixes(), b.RandaoMixes()) {
 		t.Error("Expect a.RandaoMixes() to be different from b.RandaoMixes()")
 	}

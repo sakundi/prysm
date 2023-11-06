@@ -5,20 +5,25 @@ package stategen
 
 import (
 	"context"
-	"errors"
+	stderrors "errors"
 	"sync"
+	"time"
 
-	"github.com/prysmaticlabs/prysm/v3/beacon-chain/db"
-	"github.com/prysmaticlabs/prysm/v3/beacon-chain/forkchoice"
-	"github.com/prysmaticlabs/prysm/v3/beacon-chain/state"
-	"github.com/prysmaticlabs/prysm/v3/beacon-chain/sync/backfill"
-	"github.com/prysmaticlabs/prysm/v3/config/params"
-	types "github.com/prysmaticlabs/prysm/v3/consensus-types/primitives"
-	"github.com/prysmaticlabs/prysm/v3/encoding/bytesutil"
+	"github.com/pkg/errors"
+	"github.com/prysmaticlabs/prysm/v4/beacon-chain/db"
+	"github.com/prysmaticlabs/prysm/v4/beacon-chain/forkchoice"
+	"github.com/prysmaticlabs/prysm/v4/beacon-chain/state"
+	"github.com/prysmaticlabs/prysm/v4/beacon-chain/sync/backfill"
+	"github.com/prysmaticlabs/prysm/v4/config/params"
+	"github.com/prysmaticlabs/prysm/v4/consensus-types/primitives"
+	"github.com/prysmaticlabs/prysm/v4/crypto/bls"
+	"github.com/prysmaticlabs/prysm/v4/encoding/bytesutil"
 	"go.opencensus.io/trace"
 )
 
-var defaultHotStateDBInterval types.Slot = 128
+var defaultHotStateDBInterval primitives.Slot = 128
+
+var populatePubkeyCacheOnce sync.Once
 
 // StateManager represents a management object that handles the internal
 // logic of maintaining both hot and cold states in DB.
@@ -30,10 +35,10 @@ type StateManager interface {
 	DeleteStateFromCaches(ctx context.Context, blockRoot [32]byte) error
 	ForceCheckpoint(ctx context.Context, root []byte) error
 	SaveState(ctx context.Context, blockRoot [32]byte, st state.BeaconState) error
-	SaveFinalizedState(fSlot types.Slot, fRoot [32]byte, fState state.BeaconState)
+	SaveFinalizedState(fSlot primitives.Slot, fRoot [32]byte, fState state.BeaconState)
 	MigrateToCold(ctx context.Context, fRoot [32]byte) error
 	StateByRoot(ctx context.Context, blockRoot [32]byte) (state.BeaconState, error)
-	BalancesByRoot(context.Context, [32]byte) ([]uint64, error)
+	ActiveNonSlashedBalancesByRoot(context.Context, [32]byte) ([]uint64, error)
 	StateByRootIfCachedNoCopy(blockRoot [32]byte) state.BeaconState
 	StateByRootInitialSync(ctx context.Context, blockRoot [32]byte) (state.BeaconState, error)
 }
@@ -41,7 +46,7 @@ type StateManager interface {
 // State is a concrete implementation of StateManager.
 type State struct {
 	beaconDB                db.NoHeadAccessDatabase
-	slotsPerArchivedPoint   types.Slot
+	slotsPerArchivedPoint   primitives.Slot
 	hotStateCache           *hotStateCache
 	finalizedInfo           *finalizedInfo
 	epochBoundaryStateCache *epochBoundaryState
@@ -57,14 +62,14 @@ type State struct {
 type saveHotStateDbConfig struct {
 	enabled                 bool
 	lock                    sync.Mutex
-	duration                types.Slot
+	duration                primitives.Slot
 	blockRootsOfSavedStates [][32]byte
 }
 
 // This tracks the finalized point. It's also the point where slot and the block root of
 // cold and hot sections of the DB splits.
 type finalizedInfo struct {
-	slot  types.Slot
+	slot  primitives.Slot
 	root  [32]byte
 	state state.BeaconState
 	lock  sync.RWMutex
@@ -96,8 +101,9 @@ func New(beaconDB db.NoHeadAccessDatabase, fc forkchoice.ForkChoicer, opts ...St
 	for _, o := range opts {
 		o(s)
 	}
-	fc.SetBalancesByRooter(s.BalancesByRoot)
-
+	fc.Lock()
+	defer fc.Unlock()
+	fc.SetBalancesByRooter(s.ActiveNonSlashedBalancesByRoot)
 	return s
 }
 
@@ -113,7 +119,16 @@ func (s *State) Resume(ctx context.Context, fState state.BeaconState) (state.Bea
 	fRoot := bytesutil.ToBytes32(c.Root)
 	// Resume as genesis state if last finalized root is zero hashes.
 	if fRoot == params.BeaconConfig().ZeroHash {
-		return s.beaconDB.GenesisState(ctx)
+		st, err := s.beaconDB.GenesisState(ctx)
+		if err != nil {
+			return nil, errors.Wrap(err, "could not get genesis state")
+		}
+		// Save genesis state in the hot state cache.
+		gbr, err := s.beaconDB.GenesisBlockRoot(ctx)
+		if err != nil {
+			return nil, stderrors.Join(ErrNoGenesisBlock, err)
+		}
+		return st, s.SaveState(ctx, gbr, st)
 	}
 
 	if fState == nil || fState.IsNil() {
@@ -128,13 +143,31 @@ func (s *State) Resume(ctx context.Context, fState state.BeaconState) (state.Bea
 
 	s.finalizedInfo = &finalizedInfo{slot: fState.Slot(), root: fRoot, state: fState.Copy()}
 
+	// Pre-populate the pubkey cache with the validator public keys from the finalized state.
+	// This process takes about 30 seconds on mainnet with 450,000 validators.
+	go populatePubkeyCacheOnce.Do(func() {
+		log.Debug("Populating pubkey cache")
+		start := time.Now()
+		if err := fState.ReadFromEveryValidator(func(_ int, val state.ReadOnlyValidator) error {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			pub := val.PublicKey()
+			_, err := bls.PublicKeyFromBytes(pub[:])
+			return err
+		}); err != nil {
+			log.WithError(err).Error("Failed to populate pubkey cache")
+		}
+		log.WithField("duration", time.Since(start)).Debug("Done populating pubkey cache")
+	})
+
 	return fState, nil
 }
 
 // SaveFinalizedState saves the finalized slot, root and state into memory to be used by state gen service.
 // This used for migration at the correct start slot and used for hot state play back to ensure
 // lower bound to start is always at the last finalized state.
-func (s *State) SaveFinalizedState(fSlot types.Slot, fRoot [32]byte, fState state.BeaconState) {
+func (s *State) SaveFinalizedState(fSlot primitives.Slot, fRoot [32]byte, fState state.BeaconState) {
 	s.finalizedInfo.lock.Lock()
 	defer s.finalizedInfo.lock.Unlock()
 	s.finalizedInfo.root = fRoot

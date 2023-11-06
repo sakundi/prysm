@@ -6,10 +6,10 @@ import (
 	"testing"
 
 	fssz "github.com/prysmaticlabs/fastssz"
-	state_native "github.com/prysmaticlabs/prysm/v3/beacon-chain/state/state-native"
-	ethpb "github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1"
-	"github.com/prysmaticlabs/prysm/v3/testing/require"
-	common "github.com/prysmaticlabs/prysm/v3/testing/spectest/shared/common/ssz_static"
+	state_native "github.com/prysmaticlabs/prysm/v4/beacon-chain/state/state-native"
+	ethpb "github.com/prysmaticlabs/prysm/v4/proto/prysm/v1alpha1"
+	"github.com/prysmaticlabs/prysm/v4/testing/require"
+	common "github.com/prysmaticlabs/prysm/v4/testing/spectest/shared/common/ssz_static"
 )
 
 // RunSSZStaticTests executes "ssz_static" tests.
@@ -70,6 +70,9 @@ func unmarshalledSSZ(t *testing.T, serializedBytes []byte, folderName string) (i
 		obj = &ethpb.HistoricalBatch{}
 	case "IndexedAttestation":
 		obj = &ethpb.IndexedAttestation{}
+	case "LightClientHeader":
+		t.Skip("not a beacon node type, this is a light node type")
+		return nil, nil
 	case "PendingAttestation":
 		obj = &ethpb.PendingAttestation{}
 	case "ProposerSlashing":

@@ -4,14 +4,14 @@ import (
 	"context"
 	"testing"
 
-	"github.com/prysmaticlabs/prysm/v3/consensus-types/interfaces"
-	types "github.com/prysmaticlabs/prysm/v3/consensus-types/primitives"
-	"github.com/prysmaticlabs/prysm/v3/encoding/bytesutil"
-	ethpb "github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1"
-	"github.com/prysmaticlabs/prysm/v3/testing/require"
+	"github.com/prysmaticlabs/prysm/v4/consensus-types/interfaces"
+	"github.com/prysmaticlabs/prysm/v4/consensus-types/primitives"
+	"github.com/prysmaticlabs/prysm/v4/encoding/bytesutil"
+	ethpb "github.com/prysmaticlabs/prysm/v4/proto/prysm/v1alpha1"
+	"github.com/prysmaticlabs/prysm/v4/testing/require"
 )
 
-func headerFromBlock(b interfaces.SignedBeaconBlock) (*ethpb.BeaconBlockHeader, error) {
+func headerFromBlock(b interfaces.ReadOnlySignedBeaconBlock) (*ethpb.BeaconBlockHeader, error) {
 	bodyRoot, err := b.Block().Body().HashTreeRoot()
 	if err != nil {
 		return nil, err
@@ -29,7 +29,7 @@ func headerFromBlock(b interfaces.SignedBeaconBlock) (*ethpb.BeaconBlockHeader, 
 
 func TestReplayBlocks(t *testing.T) {
 	ctx := context.Background()
-	var zero, one, two, three, four, five types.Slot = 50, 51, 150, 151, 152, 200
+	var zero, one, two, three, four, five primitives.Slot = 50, 51, 150, 151, 152, 200
 	specs := []mockHistorySpec{
 		{slot: zero},
 		{slot: one, savedState: true},
@@ -78,7 +78,7 @@ func TestReplayBlocks(t *testing.T) {
 
 func TestReplayToSlot(t *testing.T) {
 	ctx := context.Background()
-	var zero, one, two, three, four, five types.Slot = 50, 51, 150, 151, 152, 200
+	var zero, one, two, three, four, five primitives.Slot = 50, 51, 150, 151, 152, 200
 	specs := []mockHistorySpec{
 		{slot: zero},
 		{slot: one, savedState: true},

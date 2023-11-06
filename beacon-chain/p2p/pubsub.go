@@ -12,10 +12,10 @@ import (
 	pubsubpb "github.com/libp2p/go-libp2p-pubsub/pb"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/pkg/errors"
-	"github.com/prysmaticlabs/prysm/v3/cmd/beacon-chain/flags"
-	"github.com/prysmaticlabs/prysm/v3/config/params"
-	"github.com/prysmaticlabs/prysm/v3/encoding/bytesutil"
-	pbrpc "github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1"
+	"github.com/prysmaticlabs/prysm/v4/cmd/beacon-chain/flags"
+	"github.com/prysmaticlabs/prysm/v4/config/params"
+	"github.com/prysmaticlabs/prysm/v4/encoding/bytesutil"
+	pbrpc "github.com/prysmaticlabs/prysm/v4/proto/prysm/v1alpha1"
 )
 
 const (
@@ -195,6 +195,7 @@ func (s *Service) pubsubOptions() []pubsub.Option {
 		pubsub.WithEventTracer(tracer),
 		pubsub.WithPeerScoreInspect(s.peerInspector, time.Minute),
 		pubsub.WithGossipSubParams(pubsubGossipParam()),
+		pubsub.WithRawTracer(gossipTracer{host: s.host}),
 	}
 	return psOpts
 }

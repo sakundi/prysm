@@ -12,19 +12,19 @@ import (
 	"time"
 
 	"github.com/golang/mock/gomock"
-	"github.com/prysmaticlabs/prysm/v3/cmd/validator/flags"
-	ethpb "github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1"
-	pb "github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1/validator-client"
-	"github.com/prysmaticlabs/prysm/v3/testing/assert"
-	mock2 "github.com/prysmaticlabs/prysm/v3/testing/mock"
-	"github.com/prysmaticlabs/prysm/v3/testing/require"
-	"github.com/prysmaticlabs/prysm/v3/validator/accounts"
-	"github.com/prysmaticlabs/prysm/v3/validator/accounts/iface"
-	mock "github.com/prysmaticlabs/prysm/v3/validator/accounts/testing"
-	"github.com/prysmaticlabs/prysm/v3/validator/client"
-	"github.com/prysmaticlabs/prysm/v3/validator/keymanager"
-	"github.com/prysmaticlabs/prysm/v3/validator/keymanager/derived"
-	constant "github.com/prysmaticlabs/prysm/v3/validator/testing"
+	"github.com/prysmaticlabs/prysm/v4/cmd/validator/flags"
+	ethpb "github.com/prysmaticlabs/prysm/v4/proto/prysm/v1alpha1"
+	pb "github.com/prysmaticlabs/prysm/v4/proto/prysm/v1alpha1/validator-client"
+	"github.com/prysmaticlabs/prysm/v4/testing/assert"
+	"github.com/prysmaticlabs/prysm/v4/testing/require"
+	validatormock "github.com/prysmaticlabs/prysm/v4/testing/validator-mock"
+	"github.com/prysmaticlabs/prysm/v4/validator/accounts"
+	"github.com/prysmaticlabs/prysm/v4/validator/accounts/iface"
+	mock "github.com/prysmaticlabs/prysm/v4/validator/accounts/testing"
+	"github.com/prysmaticlabs/prysm/v4/validator/client"
+	"github.com/prysmaticlabs/prysm/v4/validator/keymanager"
+	"github.com/prysmaticlabs/prysm/v4/validator/keymanager/derived"
+	constant "github.com/prysmaticlabs/prysm/v4/validator/testing"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -64,7 +64,7 @@ func TestServer_ListAccounts(t *testing.T) {
 	numAccounts := 50
 	dr, ok := km.(*derived.Keymanager)
 	require.Equal(t, true, ok)
-	err = dr.RecoverAccountsFromMnemonic(ctx, constant.TestMnemonic, "", numAccounts)
+	err = dr.RecoverAccountsFromMnemonic(ctx, constant.TestMnemonic, derived.DefaultMnemonicLanguage, "", numAccounts)
 	require.NoError(t, err)
 	resp, err := s.ListAccounts(ctx, &pb.ListAccountsRequest{
 		PageSize: int32(numAccounts),
@@ -137,7 +137,7 @@ func TestServer_BackupAccounts(t *testing.T) {
 	numAccounts := 50
 	dr, ok := km.(*derived.Keymanager)
 	require.Equal(t, true, ok)
-	err = dr.RecoverAccountsFromMnemonic(ctx, constant.TestMnemonic, "", numAccounts)
+	err = dr.RecoverAccountsFromMnemonic(ctx, constant.TestMnemonic, derived.DefaultMnemonicLanguage, "", numAccounts)
 	require.NoError(t, err)
 	resp, err := s.ListAccounts(ctx, &pb.ListAccountsRequest{
 		PageSize: int32(numAccounts),
@@ -187,8 +187,8 @@ func TestServer_VoluntaryExit(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	ctx := context.Background()
-	mockValidatorClient := mock2.NewMockBeaconNodeValidatorClient(ctrl)
-	mockNodeClient := mock2.NewMockNodeClient(ctrl)
+	mockValidatorClient := validatormock.NewMockValidatorClient(ctrl)
+	mockNodeClient := validatormock.NewMockNodeClient(ctrl)
 
 	mockValidatorClient.EXPECT().
 		ValidatorIndex(gomock.Any(), gomock.Any()).
@@ -205,7 +205,6 @@ func TestServer_VoluntaryExit(t *testing.T) {
 
 	mockNodeClient.EXPECT().
 		GetGenesis(gomock.Any(), gomock.Any()).
-		Times(2).
 		Return(&ethpb.Genesis{GenesisTime: genesisTime}, nil)
 
 	mockValidatorClient.EXPECT().
@@ -251,7 +250,7 @@ func TestServer_VoluntaryExit(t *testing.T) {
 	numAccounts := 2
 	dr, ok := km.(*derived.Keymanager)
 	require.Equal(t, true, ok)
-	err = dr.RecoverAccountsFromMnemonic(ctx, constant.TestMnemonic, "", numAccounts)
+	err = dr.RecoverAccountsFromMnemonic(ctx, constant.TestMnemonic, derived.DefaultMnemonicLanguage, "", numAccounts)
 	require.NoError(t, err)
 	pubKeys, err := dr.FetchValidatingPublicKeys(ctx)
 	require.NoError(t, err)

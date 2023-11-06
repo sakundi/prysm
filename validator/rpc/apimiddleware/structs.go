@@ -85,6 +85,10 @@ type SetFeeRecipientByPubkeyRequestJson struct {
 	Ethaddress string `json:"ethaddress" hex:"true"`
 }
 
+type DeleteFeeRecipientByPubkeyRequestJson struct {
+	Pubkey string `json:"pubkey" hex:"true"`
+}
+
 type GetGasLimitResponseJson struct {
 	Data *GasLimitJson `json:"data"`
 }
@@ -95,4 +99,23 @@ type SetGasLimitRequestJson struct {
 
 type DeleteGasLimitRequestJson struct {
 	Pubkey string `json:"pubkey" hex:"true"`
+}
+
+type SetVoluntaryExitRequestJson struct {
+	Pubkey string `json:"pubkey" hex:"true"`
+	Epoch  string `json:"epoch"`
+}
+
+type SetVoluntaryExitResponseJson struct {
+	SignedVoluntaryExit *SignedVoluntaryExitJson `json:"data"`
+}
+
+type SignedVoluntaryExitJson struct {
+	VoluntaryExit *VoluntaryExitJson `json:"message"`
+	Signature     string             `json:"signature" hex:"true"`
+}
+
+type VoluntaryExitJson struct {
+	Epoch          string `json:"epoch"`
+	ValidatorIndex string `json:"validator_index"`
 }

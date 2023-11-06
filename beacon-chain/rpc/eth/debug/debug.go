@@ -3,11 +3,11 @@ package debug
 import (
 	"context"
 
-	"github.com/prysmaticlabs/prysm/v3/beacon-chain/rpc/eth/helpers"
-	ethpbv1 "github.com/prysmaticlabs/prysm/v3/proto/eth/v1"
-	ethpbv2 "github.com/prysmaticlabs/prysm/v3/proto/eth/v2"
-	"github.com/prysmaticlabs/prysm/v3/proto/migration"
-	"github.com/prysmaticlabs/prysm/v3/runtime/version"
+	"github.com/prysmaticlabs/prysm/v4/beacon-chain/rpc/eth/helpers"
+	ethpbv1 "github.com/prysmaticlabs/prysm/v4/proto/eth/v1"
+	ethpbv2 "github.com/prysmaticlabs/prysm/v4/proto/eth/v2"
+	"github.com/prysmaticlabs/prysm/v4/proto/migration"
+	"github.com/prysmaticlabs/prysm/v4/runtime/version"
 	"go.opencensus.io/trace"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -19,7 +19,7 @@ func (ds *Server) GetBeaconStateSSZ(ctx context.Context, req *ethpbv1.StateReque
 	ctx, span := trace.StartSpan(ctx, "debug.GetBeaconStateSSZ")
 	defer span.End()
 
-	state, err := ds.StateFetcher.State(ctx, req.StateId)
+	state, err := ds.Stater.State(ctx, req.StateId)
 	if err != nil {
 		return nil, helpers.PrepareStateFetchGRPCError(err)
 	}
@@ -37,14 +37,19 @@ func (ds *Server) GetBeaconStateV2(ctx context.Context, req *ethpbv2.BeaconState
 	ctx, span := trace.StartSpan(ctx, "debug.GetBeaconStateV2")
 	defer span.End()
 
-	beaconSt, err := ds.StateFetcher.State(ctx, req.StateId)
+	beaconSt, err := ds.Stater.State(ctx, req.StateId)
 	if err != nil {
 		return nil, helpers.PrepareStateFetchGRPCError(err)
 	}
-	isOptimistic, err := helpers.IsOptimistic(ctx, beaconSt, ds.OptimisticModeFetcher)
+	isOptimistic, err := helpers.IsOptimistic(ctx, req.StateId, ds.OptimisticModeFetcher, ds.Stater, ds.ChainInfoFetcher, ds.BeaconDB)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "Could not check if slot's block is optimistic: %v", err)
 	}
+	blockRoot, err := beaconSt.LatestBlockHeader().HashTreeRoot()
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "Could not calculate root of latest block header")
+	}
+	isFinalized := ds.FinalizationFetcher.IsFinalized(ctx, blockRoot)
 
 	switch beaconSt.Version() {
 	case version.Phase0:
@@ -58,6 +63,7 @@ func (ds *Server) GetBeaconStateV2(ctx context.Context, req *ethpbv2.BeaconState
 				State: &ethpbv2.BeaconStateContainer_Phase0State{Phase0State: protoSt},
 			},
 			ExecutionOptimistic: isOptimistic,
+			Finalized:           isFinalized,
 		}, nil
 	case version.Altair:
 		protoState, err := migration.BeaconStateAltairToProto(beaconSt)
@@ -70,6 +76,7 @@ func (ds *Server) GetBeaconStateV2(ctx context.Context, req *ethpbv2.BeaconState
 				State: &ethpbv2.BeaconStateContainer_AltairState{AltairState: protoState},
 			},
 			ExecutionOptimistic: isOptimistic,
+			Finalized:           isFinalized,
 		}, nil
 	case version.Bellatrix:
 		protoState, err := migration.BeaconStateBellatrixToProto(beaconSt)
@@ -80,6 +87,32 @@ func (ds *Server) GetBeaconStateV2(ctx context.Context, req *ethpbv2.BeaconState
 			Version: ethpbv2.Version_BELLATRIX,
 			Data: &ethpbv2.BeaconStateContainer{
 				State: &ethpbv2.BeaconStateContainer_BellatrixState{BellatrixState: protoState},
+			},
+			ExecutionOptimistic: isOptimistic,
+			Finalized:           isFinalized,
+		}, nil
+	case version.Capella:
+		protoState, err := migration.BeaconStateCapellaToProto(beaconSt)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "Could not convert state to proto: %v", err)
+		}
+		return &ethpbv2.BeaconStateResponseV2{
+			Version: ethpbv2.Version_CAPELLA,
+			Data: &ethpbv2.BeaconStateContainer{
+				State: &ethpbv2.BeaconStateContainer_CapellaState{CapellaState: protoState},
+			},
+			ExecutionOptimistic: isOptimistic,
+			Finalized:           isFinalized,
+		}, nil
+	case version.Deneb:
+		protoState, err := migration.BeaconStateDenebToProto(beaconSt)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "Could not convert state to proto: %v", err)
+		}
+		return &ethpbv2.BeaconStateResponseV2{
+			Version: ethpbv2.Version_DENEB,
+			Data: &ethpbv2.BeaconStateContainer{
+				State: &ethpbv2.BeaconStateContainer_DenebState{DenebState: protoState},
 			},
 			ExecutionOptimistic: isOptimistic,
 		}, nil
@@ -93,7 +126,7 @@ func (ds *Server) GetBeaconStateSSZV2(ctx context.Context, req *ethpbv2.BeaconSt
 	ctx, span := trace.StartSpan(ctx, "debug.GetBeaconStateSSZV2")
 	defer span.End()
 
-	st, err := ds.StateFetcher.State(ctx, req.StateId)
+	st, err := ds.Stater.State(ctx, req.StateId)
 	if err != nil {
 		return nil, helpers.PrepareStateFetchGRPCError(err)
 	}
@@ -110,6 +143,10 @@ func (ds *Server) GetBeaconStateSSZV2(ctx context.Context, req *ethpbv2.BeaconSt
 		ver = ethpbv2.Version_ALTAIR
 	case version.Bellatrix:
 		ver = ethpbv2.Version_BELLATRIX
+	case version.Capella:
+		ver = ethpbv2.Version_CAPELLA
+	case version.Deneb:
+		ver = ethpbv2.Version_DENEB
 	default:
 		return nil, status.Error(codes.Internal, "Unsupported state version")
 	}
@@ -142,6 +179,6 @@ func (ds *Server) ListForkChoiceHeadsV2(ctx context.Context, _ *emptypb.Empty) (
 }
 
 // GetForkChoice returns a dump fork choice store.
-func (ds *Server) GetForkChoice(ctx context.Context, _ *emptypb.Empty) (*ethpbv1.ForkChoiceResponse, error) {
-	return ds.ForkFetcher.ForkChoicer().ForkChoiceDump(ctx)
+func (ds *Server) GetForkChoice(ctx context.Context, _ *emptypb.Empty) (*ethpbv1.ForkChoiceDump, error) {
+	return ds.ForkchoiceFetcher.ForkChoiceDump(ctx)
 }

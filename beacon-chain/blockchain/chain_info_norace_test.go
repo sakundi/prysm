@@ -4,13 +4,14 @@ import (
 	"context"
 	"testing"
 
-	testDB "github.com/prysmaticlabs/prysm/v3/beacon-chain/db/testing"
-	doublylinkedtree "github.com/prysmaticlabs/prysm/v3/beacon-chain/forkchoice/doubly-linked-tree"
-	"github.com/prysmaticlabs/prysm/v3/beacon-chain/state/stategen"
-	"github.com/prysmaticlabs/prysm/v3/consensus-types/blocks"
-	ethpb "github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1"
-	"github.com/prysmaticlabs/prysm/v3/testing/require"
-	"github.com/prysmaticlabs/prysm/v3/testing/util"
+	testDB "github.com/prysmaticlabs/prysm/v4/beacon-chain/db/testing"
+	doublylinkedtree "github.com/prysmaticlabs/prysm/v4/beacon-chain/forkchoice/doubly-linked-tree"
+	"github.com/prysmaticlabs/prysm/v4/beacon-chain/state/stategen"
+	"github.com/prysmaticlabs/prysm/v4/consensus-types/blocks"
+	"github.com/prysmaticlabs/prysm/v4/encoding/bytesutil"
+	ethpb "github.com/prysmaticlabs/prysm/v4/proto/prysm/v1alpha1"
+	"github.com/prysmaticlabs/prysm/v4/testing/require"
+	"github.com/prysmaticlabs/prysm/v4/testing/util"
 )
 
 func TestHeadSlot_DataRace(t *testing.T) {
@@ -81,6 +82,9 @@ func TestHeadState_DataRace(t *testing.T) {
 	require.NoError(t, err)
 	wait := make(chan struct{})
 	st, _ := util.DeterministicGenesisState(t, 1)
+	root := bytesutil.ToBytes32(bytesutil.PadTo([]byte{'s'}, 32))
+	require.NoError(t, beaconDB.SaveGenesisBlockRoot(context.Background(), root))
+	require.NoError(t, beaconDB.SaveState(context.Background(), st, root))
 	go func() {
 		defer close(wait)
 		require.NoError(t, s.saveHead(context.Background(), [32]byte{}, b, st))

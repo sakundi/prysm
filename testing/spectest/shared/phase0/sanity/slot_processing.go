@@ -6,12 +6,12 @@ import (
 	"testing"
 
 	"github.com/golang/snappy"
-	"github.com/prysmaticlabs/prysm/v3/beacon-chain/core/transition"
-	state_native "github.com/prysmaticlabs/prysm/v3/beacon-chain/state/state-native"
-	ethpb "github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1"
-	"github.com/prysmaticlabs/prysm/v3/testing/require"
-	"github.com/prysmaticlabs/prysm/v3/testing/spectest/utils"
-	"github.com/prysmaticlabs/prysm/v3/testing/util"
+	"github.com/prysmaticlabs/prysm/v4/beacon-chain/core/transition"
+	state_native "github.com/prysmaticlabs/prysm/v4/beacon-chain/state/state-native"
+	ethpb "github.com/prysmaticlabs/prysm/v4/proto/prysm/v1alpha1"
+	"github.com/prysmaticlabs/prysm/v4/testing/require"
+	"github.com/prysmaticlabs/prysm/v4/testing/spectest/utils"
+	"github.com/prysmaticlabs/prysm/v4/testing/util"
 	"google.golang.org/protobuf/proto"
 	"gopkg.in/d4l3k/messagediff.v1"
 )
@@ -25,7 +25,9 @@ func RunSlotProcessingTests(t *testing.T, config string) {
 	require.NoError(t, utils.SetConfig(t, config))
 
 	testFolders, testsFolderPath := utils.TestFolders(t, config, "phase0", "sanity/slots/pyspec_tests")
-
+	if len(testFolders) == 0 {
+		t.Fatalf("No test folders found for %s/%s/%s", config, "phase0", "sanity/slots/pyspec_tests")
+	}
 	for _, folder := range testFolders {
 		t.Run(folder.Name(), func(t *testing.T) {
 			preBeaconStateFile, err := util.BazelFileBytes(testsFolderPath, folder.Name(), "pre.ssz_snappy")

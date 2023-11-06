@@ -5,22 +5,22 @@ import (
 	"testing"
 
 	"github.com/prysmaticlabs/go-bitfield"
-	"github.com/prysmaticlabs/prysm/v3/beacon-chain/core/blocks"
-	"github.com/prysmaticlabs/prysm/v3/beacon-chain/core/helpers"
-	"github.com/prysmaticlabs/prysm/v3/beacon-chain/core/signing"
-	state_native "github.com/prysmaticlabs/prysm/v3/beacon-chain/state/state-native"
-	fieldparams "github.com/prysmaticlabs/prysm/v3/config/fieldparams"
-	"github.com/prysmaticlabs/prysm/v3/config/params"
-	types "github.com/prysmaticlabs/prysm/v3/consensus-types/primitives"
-	"github.com/prysmaticlabs/prysm/v3/crypto/bls"
-	"github.com/prysmaticlabs/prysm/v3/encoding/bytesutil"
-	ethpb "github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1"
-	"github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1/attestation"
-	"github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1/attestation/aggregation"
-	attaggregation "github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1/attestation/aggregation/attestations"
-	"github.com/prysmaticlabs/prysm/v3/testing/assert"
-	"github.com/prysmaticlabs/prysm/v3/testing/require"
-	"github.com/prysmaticlabs/prysm/v3/testing/util"
+	"github.com/prysmaticlabs/prysm/v4/beacon-chain/core/blocks"
+	"github.com/prysmaticlabs/prysm/v4/beacon-chain/core/helpers"
+	"github.com/prysmaticlabs/prysm/v4/beacon-chain/core/signing"
+	state_native "github.com/prysmaticlabs/prysm/v4/beacon-chain/state/state-native"
+	fieldparams "github.com/prysmaticlabs/prysm/v4/config/fieldparams"
+	"github.com/prysmaticlabs/prysm/v4/config/params"
+	"github.com/prysmaticlabs/prysm/v4/consensus-types/primitives"
+	"github.com/prysmaticlabs/prysm/v4/crypto/bls"
+	"github.com/prysmaticlabs/prysm/v4/encoding/bytesutil"
+	ethpb "github.com/prysmaticlabs/prysm/v4/proto/prysm/v1alpha1"
+	"github.com/prysmaticlabs/prysm/v4/proto/prysm/v1alpha1/attestation"
+	"github.com/prysmaticlabs/prysm/v4/proto/prysm/v1alpha1/attestation/aggregation"
+	attaggregation "github.com/prysmaticlabs/prysm/v4/proto/prysm/v1alpha1/attestation/aggregation/attestations"
+	"github.com/prysmaticlabs/prysm/v4/testing/assert"
+	"github.com/prysmaticlabs/prysm/v4/testing/require"
+	"github.com/prysmaticlabs/prysm/v4/testing/util"
 )
 
 func TestProcessAggregatedAttestation_OverlappingBits(t *testing.T) {
@@ -113,7 +113,7 @@ func TestProcessAttestationsNoVerify_OK(t *testing.T) {
 		AggregationBits: aggBits,
 	}
 
-	zeroSig := [fieldparams.BLSSignatureLength]byte{}
+	var zeroSig [fieldparams.BLSSignatureLength]byte
 	att.Signature = zeroSig[:]
 
 	err := beaconState.SetSlot(beaconState.Slot() + params.BeaconConfig().MinAttestationInclusionDelay)
@@ -125,6 +125,44 @@ func TestProcessAttestationsNoVerify_OK(t *testing.T) {
 
 	_, err = blocks.ProcessAttestationNoVerifySignature(context.TODO(), beaconState, att)
 	assert.NoError(t, err)
+}
+
+func TestProcessAttestationsNoVerify_OlderThanSlotsPerEpoch(t *testing.T) {
+	aggBits := bitfield.NewBitlist(3)
+	aggBits.SetBitAt(1, true)
+	att := &ethpb.Attestation{
+		Data: &ethpb.AttestationData{
+			Source: &ethpb.Checkpoint{Epoch: 0, Root: make([]byte, 32)},
+			Target: &ethpb.Checkpoint{Epoch: 0, Root: make([]byte, 32)},
+		},
+		AggregationBits: aggBits,
+	}
+	ctx := context.Background()
+
+	t.Run("attestation older than slots per epoch", func(t *testing.T) {
+		beaconState, _ := util.DeterministicGenesisState(t, 100)
+
+		err := beaconState.SetSlot(beaconState.Slot() + params.BeaconConfig().SlotsPerEpoch + 1)
+		require.NoError(t, err)
+		ckp := beaconState.CurrentJustifiedCheckpoint()
+		copy(ckp.Root, "hello-world")
+		require.NoError(t, beaconState.SetCurrentJustifiedCheckpoint(ckp))
+		require.NoError(t, beaconState.AppendCurrentEpochAttestations(&ethpb.PendingAttestation{}))
+
+		require.ErrorContains(t, "state slot 33 > attestation slot 0 + SLOTS_PER_EPOCH 32", blocks.VerifyAttestationNoVerifySignature(ctx, beaconState, att))
+	})
+
+	t.Run("attestation older than slots per epoch in deneb", func(t *testing.T) {
+		beaconState, _ := util.DeterministicGenesisStateDeneb(t, 100)
+
+		err := beaconState.SetSlot(beaconState.Slot() + params.BeaconConfig().SlotsPerEpoch + 1)
+		require.NoError(t, err)
+		ckp := beaconState.CurrentJustifiedCheckpoint()
+		copy(ckp.Root, "hello-world")
+		require.NoError(t, beaconState.SetCurrentJustifiedCheckpoint(ckp))
+
+		require.NoError(t, blocks.VerifyAttestationNoVerifySignature(ctx, beaconState, att))
+	})
 }
 
 func TestVerifyAttestationNoVerifySignature_OK(t *testing.T) {
@@ -144,7 +182,7 @@ func TestVerifyAttestationNoVerifySignature_OK(t *testing.T) {
 		AggregationBits: aggBits,
 	}
 
-	zeroSig := [fieldparams.BLSSignatureLength]byte{}
+	var zeroSig [fieldparams.BLSSignatureLength]byte
 	att.Signature = zeroSig[:]
 
 	err := beaconState.SetSlot(beaconState.Slot() + params.BeaconConfig().MinAttestationInclusionDelay)
@@ -172,7 +210,7 @@ func TestVerifyAttestationNoVerifySignature_BadAttIdx(t *testing.T) {
 		},
 		AggregationBits: aggBits,
 	}
-	zeroSig := [fieldparams.BLSSignatureLength]byte{}
+	var zeroSig [fieldparams.BLSSignatureLength]byte
 	att.Signature = zeroSig[:]
 	require.NoError(t, beaconState.SetSlot(beaconState.Slot()+params.BeaconConfig().MinAttestationInclusionDelay))
 	ckp := beaconState.CurrentJustifiedCheckpoint()
@@ -331,7 +369,7 @@ func TestValidateIndexedAttestation_AboveMaxLength(t *testing.T) {
 		indexedAtt1.AttestingIndices[i] = i
 		indexedAtt1.Data = &ethpb.AttestationData{
 			Target: &ethpb.Checkpoint{
-				Epoch: types.Epoch(i),
+				Epoch: primitives.Epoch(i),
 			},
 		}
 	}

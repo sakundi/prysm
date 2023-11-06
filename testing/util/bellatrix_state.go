@@ -5,16 +5,16 @@ import (
 	"testing"
 
 	"github.com/pkg/errors"
-	"github.com/prysmaticlabs/prysm/v3/beacon-chain/core/helpers"
-	"github.com/prysmaticlabs/prysm/v3/beacon-chain/state"
-	state_native "github.com/prysmaticlabs/prysm/v3/beacon-chain/state/state-native"
-	"github.com/prysmaticlabs/prysm/v3/beacon-chain/state/stateutil"
-	fieldparams "github.com/prysmaticlabs/prysm/v3/config/fieldparams"
-	"github.com/prysmaticlabs/prysm/v3/config/params"
-	"github.com/prysmaticlabs/prysm/v3/crypto/bls"
-	"github.com/prysmaticlabs/prysm/v3/encoding/bytesutil"
-	enginev1 "github.com/prysmaticlabs/prysm/v3/proto/engine/v1"
-	ethpb "github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1"
+	"github.com/prysmaticlabs/prysm/v4/beacon-chain/core/helpers"
+	"github.com/prysmaticlabs/prysm/v4/beacon-chain/state"
+	state_native "github.com/prysmaticlabs/prysm/v4/beacon-chain/state/state-native"
+	"github.com/prysmaticlabs/prysm/v4/beacon-chain/state/stateutil"
+	fieldparams "github.com/prysmaticlabs/prysm/v4/config/fieldparams"
+	"github.com/prysmaticlabs/prysm/v4/config/params"
+	"github.com/prysmaticlabs/prysm/v4/crypto/bls"
+	"github.com/prysmaticlabs/prysm/v4/encoding/bytesutil"
+	enginev1 "github.com/prysmaticlabs/prysm/v4/proto/engine/v1"
+	ethpb "github.com/prysmaticlabs/prysm/v4/proto/prysm/v1alpha1"
 )
 
 // DeterministicGenesisStateBellatrix returns a genesis state in Bellatrix format made using the deterministic deposits.
@@ -134,6 +134,12 @@ func buildGenesisBeaconStateBellatrix(genesisTime uint64, preState state.BeaconS
 	if err != nil {
 		return nil, err
 	}
+	scoresMissing := len(preState.Validators()) - len(scores)
+	if scoresMissing > 0 {
+		for i := 0; i < scoresMissing; i++ {
+			scores = append(scores, 0)
+		}
+	}
 	st := &ethpb.BeaconStateBellatrix{
 		// Misc fields.
 		Slot:                  0,
@@ -240,5 +246,16 @@ func buildGenesisBeaconStateBellatrix(genesisTime uint64, preState state.BeaconS
 		TransactionsRoot: make([]byte, 32),
 	}
 
-	return state_native.InitializeFromProtoBellatrix(st)
+	bs, err := state_native.InitializeFromProtoBellatrix(st)
+	if err != nil {
+		return nil, err
+	}
+	is, err := bs.InactivityScores()
+	if err != nil {
+		return nil, err
+	}
+	if bs.NumValidators() != len(is) {
+		return nil, errors.New("inactivity score mismatch with num vals")
+	}
+	return bs, nil
 }

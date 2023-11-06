@@ -2,11 +2,10 @@ package state_native
 
 import (
 	"github.com/pkg/errors"
-	"github.com/prysmaticlabs/prysm/v3/beacon-chain/state"
-	fieldparams "github.com/prysmaticlabs/prysm/v3/config/fieldparams"
-	"github.com/prysmaticlabs/prysm/v3/config/params"
-	types "github.com/prysmaticlabs/prysm/v3/consensus-types/primitives"
-	ethpb "github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1"
+	"github.com/prysmaticlabs/prysm/v4/beacon-chain/state"
+	fieldparams "github.com/prysmaticlabs/prysm/v4/config/fieldparams"
+	"github.com/prysmaticlabs/prysm/v4/consensus-types/primitives"
+	ethpb "github.com/prysmaticlabs/prysm/v4/proto/prysm/v1alpha1"
 )
 
 var (
@@ -24,11 +23,11 @@ var _ = state.ReadOnlyValidator(readOnlyValidator{})
 
 // NewValidator initializes the read only wrapper for validator.
 func NewValidator(v *ethpb.Validator) (state.ReadOnlyValidator, error) {
+	if v == nil {
+		return nil, ErrNilWrappedValidator
+	}
 	rov := readOnlyValidator{
 		validator: v,
-	}
-	if rov.IsNil() {
-		return nil, ErrNilWrappedValidator
 	}
 	return rov, nil
 }
@@ -41,25 +40,25 @@ func (v readOnlyValidator) EffectiveBalance() uint64 {
 
 // ActivationEligibilityEpoch returns the activation eligibility epoch of the
 // read only validator.
-func (v readOnlyValidator) ActivationEligibilityEpoch() types.Epoch {
+func (v readOnlyValidator) ActivationEligibilityEpoch() primitives.Epoch {
 	return v.validator.ActivationEligibilityEpoch
 }
 
 // ActivationEpoch returns the activation epoch of the
 // read only validator.
-func (v readOnlyValidator) ActivationEpoch() types.Epoch {
+func (v readOnlyValidator) ActivationEpoch() primitives.Epoch {
 	return v.validator.ActivationEpoch
 }
 
 // WithdrawableEpoch returns the withdrawable epoch of the
 // read only validator.
-func (v readOnlyValidator) WithdrawableEpoch() types.Epoch {
+func (v readOnlyValidator) WithdrawableEpoch() primitives.Epoch {
 	return v.validator.WithdrawableEpoch
 }
 
 // ExitEpoch returns the exit epoch of the
 // read only validator.
-func (v readOnlyValidator) ExitEpoch() types.Epoch {
+func (v readOnlyValidator) ExitEpoch() primitives.Epoch {
 	return v.validator.ExitEpoch
 }
 
@@ -77,28 +76,6 @@ func (v readOnlyValidator) WithdrawalCredentials() []byte {
 	creds := make([]byte, len(v.validator.WithdrawalCredentials))
 	copy(creds, v.validator.WithdrawalCredentials)
 	return creds
-}
-
-// HasETH1WithdrawalCredential returns whether the validator has an ETH1
-// Withdrawal prefix.
-func (v readOnlyValidator) HasETH1WithdrawalCredential() bool {
-	cred := v.WithdrawalCredentials()
-	return len(cred) > 0 && cred[0] == params.BeaconConfig().ETH1AddressWithdrawalPrefixByte
-}
-
-// IsFullyWithdrawable returns whether the validator is able to perform a full
-// withdrawal. This differ from the spec helper in that the balance > 0 is not
-// checked.
-func (v readOnlyValidator) IsFullyWithdrawable(epoch types.Epoch) bool {
-	return v.HasETH1WithdrawalCredential() && v.WithdrawableEpoch() <= epoch
-}
-
-// IsPartiallyWithdrawable returns whether the validator is able to perform a
-// partial withdrawal.
-func (v readOnlyValidator) IsPartiallyWithdrawable(balance uint64) bool {
-	hasMaxBalance := v.EffectiveBalance() == params.BeaconConfig().MaxEffectiveBalance
-	hasExcessBalance := balance > params.BeaconConfig().MaxEffectiveBalance
-	return v.HasETH1WithdrawalCredential() && hasExcessBalance && hasMaxBalance
 }
 
 // Slashed returns the read only validator is slashed.

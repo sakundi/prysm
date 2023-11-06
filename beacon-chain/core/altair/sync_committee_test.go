@@ -5,17 +5,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/prysmaticlabs/prysm/v3/beacon-chain/core/altair"
-	"github.com/prysmaticlabs/prysm/v3/beacon-chain/core/helpers"
-	"github.com/prysmaticlabs/prysm/v3/beacon-chain/state"
-	state_native "github.com/prysmaticlabs/prysm/v3/beacon-chain/state/state-native"
-	"github.com/prysmaticlabs/prysm/v3/config/params"
-	types "github.com/prysmaticlabs/prysm/v3/consensus-types/primitives"
-	"github.com/prysmaticlabs/prysm/v3/crypto/bls"
-	ethpb "github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1"
-	"github.com/prysmaticlabs/prysm/v3/testing/assert"
-	"github.com/prysmaticlabs/prysm/v3/testing/require"
-	prysmTime "github.com/prysmaticlabs/prysm/v3/time"
+	"github.com/prysmaticlabs/prysm/v4/beacon-chain/core/altair"
+	"github.com/prysmaticlabs/prysm/v4/beacon-chain/core/helpers"
+	"github.com/prysmaticlabs/prysm/v4/beacon-chain/state"
+	state_native "github.com/prysmaticlabs/prysm/v4/beacon-chain/state/state-native"
+	"github.com/prysmaticlabs/prysm/v4/config/params"
+	"github.com/prysmaticlabs/prysm/v4/consensus-types/primitives"
+	"github.com/prysmaticlabs/prysm/v4/crypto/bls"
+	ethpb "github.com/prysmaticlabs/prysm/v4/proto/prysm/v1alpha1"
+	"github.com/prysmaticlabs/prysm/v4/testing/assert"
+	"github.com/prysmaticlabs/prysm/v4/testing/require"
+	prysmTime "github.com/prysmaticlabs/prysm/v4/time"
 )
 
 func TestSyncCommitteeIndices_CanGet(t *testing.T) {
@@ -37,7 +37,7 @@ func TestSyncCommitteeIndices_CanGet(t *testing.T) {
 
 	type args struct {
 		state state.BeaconState
-		epoch types.Epoch
+		epoch primitives.Epoch
 	}
 	tests := []struct {
 		name      string
@@ -109,11 +109,11 @@ func TestSyncCommitteeIndices_DifferentPeriods(t *testing.T) {
 	got2, err := altair.NextSyncCommitteeIndices(context.Background(), st)
 	require.NoError(t, err)
 	require.DeepNotEqual(t, got1, got2)
-	require.NoError(t, st.SetSlot(params.BeaconConfig().SlotsPerEpoch*types.Slot(params.BeaconConfig().EpochsPerSyncCommitteePeriod)))
+	require.NoError(t, st.SetSlot(params.BeaconConfig().SlotsPerEpoch*primitives.Slot(params.BeaconConfig().EpochsPerSyncCommitteePeriod)))
 	got2, err = altair.NextSyncCommitteeIndices(context.Background(), st)
 	require.NoError(t, err)
 	require.DeepNotEqual(t, got1, got2)
-	require.NoError(t, st.SetSlot(params.BeaconConfig().SlotsPerEpoch*types.Slot(2*params.BeaconConfig().EpochsPerSyncCommitteePeriod)))
+	require.NoError(t, st.SetSlot(params.BeaconConfig().SlotsPerEpoch*primitives.Slot(2*params.BeaconConfig().EpochsPerSyncCommitteePeriod)))
 	got2, err = altair.NextSyncCommitteeIndices(context.Background(), st)
 	require.NoError(t, err)
 	require.DeepNotEqual(t, got1, got2)
@@ -141,7 +141,7 @@ func TestSyncCommittee_CanGet(t *testing.T) {
 
 	type args struct {
 		state state.BeaconState
-		epoch types.Epoch
+		epoch primitives.Epoch
 	}
 	tests := []struct {
 		name      string
@@ -178,7 +178,7 @@ func TestSyncCommittee_CanGet(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			helpers.ClearCache()
 			if !tt.wantErr {
-				require.NoError(t, tt.args.state.SetSlot(types.Slot(tt.args.epoch)*params.BeaconConfig().SlotsPerEpoch))
+				require.NoError(t, tt.args.state.SetSlot(primitives.Slot(tt.args.epoch)*params.BeaconConfig().SlotsPerEpoch))
 			}
 			got, err := altair.NextSyncCommittee(context.Background(), tt.args.state)
 			if tt.wantErr {
@@ -272,7 +272,7 @@ func Test_ValidateSyncMessageTime(t *testing.T) {
 	}
 
 	type args struct {
-		syncMessageSlot types.Slot
+		syncMessageSlot primitives.Slot
 		genesisTime     time.Time
 	}
 	tests := []struct {
@@ -311,7 +311,7 @@ func Test_ValidateSyncMessageTime(t *testing.T) {
 				syncMessageSlot: 16,
 				genesisTime:     prysmTime.Now().Add(-(15 * time.Duration(params.BeaconConfig().SecondsPerSlot) * time.Second)),
 			},
-			wantedErr: "(slot 16) not within allowable range of",
+			wantedErr: "(message slot 16) not within allowable range of",
 		},
 		{
 			name: "sync_message.slot == current_slot+CLOCK_DISPARITY",
@@ -327,7 +327,7 @@ func Test_ValidateSyncMessageTime(t *testing.T) {
 				syncMessageSlot: 100,
 				genesisTime:     prysmTime.Now().Add(-(100 * time.Duration(params.BeaconConfig().SecondsPerSlot) * time.Second) + params.BeaconNetworkConfig().MaximumGossipClockDisparity + 1000*time.Millisecond),
 			},
-			wantedErr: "(slot 100) not within allowable range of",
+			wantedErr: "(message slot 100) not within allowable range of",
 		},
 		{
 			name: "sync_message.slot == current_slot-CLOCK_DISPARITY",
@@ -343,7 +343,7 @@ func Test_ValidateSyncMessageTime(t *testing.T) {
 				syncMessageSlot: 101,
 				genesisTime:     prysmTime.Now().Add(-(100*time.Duration(params.BeaconConfig().SecondsPerSlot)*time.Second + params.BeaconNetworkConfig().MaximumGossipClockDisparity)),
 			},
-			wantedErr: "(slot 101) not within allowable range of",
+			wantedErr: "(message slot 101) not within allowable range of",
 		},
 		{
 			name: "sync_message.slot is well beyond current slot",

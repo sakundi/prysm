@@ -1,10 +1,11 @@
 package accounts
 
 import (
-	"github.com/prysmaticlabs/prysm/v3/crypto/bls"
-	"github.com/prysmaticlabs/prysm/v3/validator/accounts/wallet"
-	"github.com/prysmaticlabs/prysm/v3/validator/keymanager"
-	"github.com/prysmaticlabs/prysm/v3/validator/keymanager/remote"
+	"time"
+
+	"github.com/prysmaticlabs/prysm/v4/crypto/bls"
+	"github.com/prysmaticlabs/prysm/v4/validator/accounts/wallet"
+	"github.com/prysmaticlabs/prysm/v4/validator/keymanager"
 	"google.golang.org/grpc"
 )
 
@@ -31,14 +32,6 @@ func WithKeymanager(km keymanager.IKeymanager) Option {
 func WithKeymanagerType(k keymanager.Kind) Option {
 	return func(acc *AccountsCLIManager) error {
 		acc.keymanagerKind = k
-		return nil
-	}
-}
-
-// WithKeymanagerOpts provides a keymanager configuration to the accounts cli manager.
-func WithKeymanagerOpts(kmo *remote.KeymanagerOpts) Option {
-	return func(acc *AccountsCLIManager) error {
-		acc.keymanagerOpts = kmo
 		return nil
 	}
 }
@@ -91,6 +84,15 @@ func WithBeaconRPCProvider(provider string) Option {
 	}
 }
 
+// WithBeaconRESTApiProvider provides a beacon node REST API endpoint to the accounts cli manager.
+func WithBeaconRESTApiProvider(beaconApiEndpoint string) Option {
+	return func(acc *AccountsCLIManager) error {
+		acc.beaconApiEndpoint = beaconApiEndpoint
+		acc.beaconApiTimeout = time.Second * 30
+		return nil
+	}
+}
+
 // WithWalletKeyCount tracks the number of keys in a wallet.
 func WithWalletKeyCount(walletKeyCount int) Option {
 	return func(acc *AccountsCLIManager) error {
@@ -127,6 +129,14 @@ func WithImportPrivateKeys(importPrivateKeys bool) Option {
 func WithSkipMnemonicConfirm(s bool) Option {
 	return func(acc *AccountsCLIManager) error {
 		acc.skipMnemonicConfirm = s
+		return nil
+	}
+}
+
+// WithMnemonicLanguage specifies the language used for the mnemonic passphrase.
+func WithMnemonicLanguage(mnemonicLanguage string) Option {
+	return func(acc *AccountsCLIManager) error {
+		acc.mnemonicLanguage = mnemonicLanguage
 		return nil
 	}
 }
@@ -191,6 +201,13 @@ func WithRawPubKeys(rawPubKeys [][]byte) Option {
 func WithFormattedPubKeys(formattedPubKeys []string) Option {
 	return func(acc *AccountsCLIManager) error {
 		acc.formattedPubKeys = formattedPubKeys
+		return nil
+	}
+}
+
+func WithExitJSONOutputPath(outputPath string) Option {
+	return func(acc *AccountsCLIManager) error {
+		acc.exitJSONOutputPath = outputPath
 		return nil
 	}
 }

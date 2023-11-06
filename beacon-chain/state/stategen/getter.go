@@ -2,16 +2,17 @@ package stategen
 
 import (
 	"context"
+	stderrors "errors"
 
 	"github.com/pkg/errors"
-	"github.com/prysmaticlabs/prysm/v3/beacon-chain/core/helpers"
-	"github.com/prysmaticlabs/prysm/v3/beacon-chain/core/time"
-	"github.com/prysmaticlabs/prysm/v3/beacon-chain/state"
-	"github.com/prysmaticlabs/prysm/v3/config/params"
-	"github.com/prysmaticlabs/prysm/v3/consensus-types/blocks"
-	types "github.com/prysmaticlabs/prysm/v3/consensus-types/primitives"
-	"github.com/prysmaticlabs/prysm/v3/encoding/bytesutil"
-	ethpb "github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1"
+	"github.com/prysmaticlabs/prysm/v4/beacon-chain/core/helpers"
+	"github.com/prysmaticlabs/prysm/v4/beacon-chain/core/time"
+	"github.com/prysmaticlabs/prysm/v4/beacon-chain/state"
+	"github.com/prysmaticlabs/prysm/v4/config/params"
+	"github.com/prysmaticlabs/prysm/v4/consensus-types/blocks"
+	"github.com/prysmaticlabs/prysm/v4/consensus-types/primitives"
+	"github.com/prysmaticlabs/prysm/v4/encoding/bytesutil"
+	ethpb "github.com/prysmaticlabs/prysm/v4/proto/prysm/v1alpha1"
 	"go.opencensus.io/trace"
 )
 
@@ -56,14 +57,18 @@ func (s *State) StateByRoot(ctx context.Context, blockRoot [32]byte) (state.Beac
 
 	// Genesis case. If block root is zero hash, short circuit to use genesis state stored in DB.
 	if blockRoot == params.BeaconConfig().ZeroHash {
-		return s.beaconDB.GenesisState(ctx)
+		root, err := s.beaconDB.GenesisBlockRoot(ctx)
+		if err != nil {
+			return nil, stderrors.Join(ErrNoGenesisBlock, err)
+		}
+		blockRoot = root
 	}
 	return s.loadStateByRoot(ctx, blockRoot)
 }
 
-// BalancesByRoot retrieves the effective balances of all validators at the
+// ActiveNonSlashedBalancesByRoot retrieves the effective balances of all active and non-slashed validators at the
 // state with a given root
-func (s *State) BalancesByRoot(ctx context.Context, blockRoot [32]byte) ([]uint64, error) {
+func (s *State) ActiveNonSlashedBalancesByRoot(ctx context.Context, blockRoot [32]byte) ([]uint64, error) {
 	st, err := s.StateByRoot(ctx, blockRoot)
 	if err != nil {
 		return nil, err
@@ -75,7 +80,7 @@ func (s *State) BalancesByRoot(ctx context.Context, blockRoot [32]byte) ([]uint6
 
 	balances := make([]uint64, st.NumValidators())
 	var balanceAccretor = func(idx int, val state.ReadOnlyValidator) error {
-		if helpers.IsActiveValidatorUsingTrie(val, epoch) {
+		if helpers.IsActiveNonSlashedValidatorUsingTrie(val, epoch) {
 			balances[idx] = val.EffectiveBalance()
 		} else {
 			balances[idx] = 0
@@ -248,8 +253,11 @@ func (s *State) latestAncestor(ctx context.Context, blockRoot [32]byte) (state.B
 	ctx, span := trace.StartSpan(ctx, "stateGen.latestAncestor")
 	defer span.End()
 
-	if s.isFinalizedRoot(blockRoot) && s.finalizedState() != nil {
-		return s.finalizedState(), nil
+	if s.isFinalizedRoot(blockRoot) {
+		finalizedState := s.finalizedState()
+		if finalizedState != nil {
+			return finalizedState, nil
+		}
 	}
 
 	b, err := s.beaconDB.Block(ctx, blockRoot)
@@ -323,7 +331,7 @@ func (s *State) CombinedCache() *CombinedCache {
 	return &CombinedCache{getters: getters}
 }
 
-func (s *State) slotAvailable(slot types.Slot) bool {
+func (s *State) slotAvailable(slot primitives.Slot) bool {
 	// default to assuming node was initialized from genesis - backfill only needs to be specified for checkpoint sync
 	if s.backfillStatus == nil {
 		return true

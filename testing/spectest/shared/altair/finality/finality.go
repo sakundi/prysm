@@ -6,15 +6,15 @@ import (
 	"testing"
 
 	"github.com/golang/snappy"
-	"github.com/prysmaticlabs/prysm/v3/beacon-chain/core/helpers"
-	"github.com/prysmaticlabs/prysm/v3/beacon-chain/core/transition"
-	"github.com/prysmaticlabs/prysm/v3/beacon-chain/state"
-	state_native "github.com/prysmaticlabs/prysm/v3/beacon-chain/state/state-native"
-	"github.com/prysmaticlabs/prysm/v3/consensus-types/blocks"
-	ethpb "github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1"
-	"github.com/prysmaticlabs/prysm/v3/testing/require"
-	"github.com/prysmaticlabs/prysm/v3/testing/spectest/utils"
-	"github.com/prysmaticlabs/prysm/v3/testing/util"
+	"github.com/prysmaticlabs/prysm/v4/beacon-chain/core/helpers"
+	"github.com/prysmaticlabs/prysm/v4/beacon-chain/core/transition"
+	"github.com/prysmaticlabs/prysm/v4/beacon-chain/state"
+	state_native "github.com/prysmaticlabs/prysm/v4/beacon-chain/state/state-native"
+	"github.com/prysmaticlabs/prysm/v4/consensus-types/blocks"
+	ethpb "github.com/prysmaticlabs/prysm/v4/proto/prysm/v1alpha1"
+	"github.com/prysmaticlabs/prysm/v4/testing/require"
+	"github.com/prysmaticlabs/prysm/v4/testing/spectest/utils"
+	"github.com/prysmaticlabs/prysm/v4/testing/util"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -31,6 +31,9 @@ func RunFinalityTest(t *testing.T, config string) {
 	require.NoError(t, utils.SetConfig(t, config))
 
 	testFolders, testsFolderPath := utils.TestFolders(t, config, "altair", "finality/finality/pyspec_tests")
+	if len(testFolders) == 0 {
+		t.Fatalf("No test folders found for %s/%s/%s", config, "altair", "finality/finality/pyspec_tests")
+	}
 	for _, folder := range testFolders {
 		t.Run(folder.Name(), func(t *testing.T) {
 			helpers.ClearCache()

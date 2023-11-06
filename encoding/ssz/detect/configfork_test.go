@@ -6,23 +6,23 @@ import (
 	"math"
 	"testing"
 
-	"github.com/prysmaticlabs/prysm/v3/beacon-chain/state"
-	"github.com/prysmaticlabs/prysm/v3/config/params"
-	"github.com/prysmaticlabs/prysm/v3/consensus-types/blocks"
-	"github.com/prysmaticlabs/prysm/v3/consensus-types/interfaces"
-	"github.com/prysmaticlabs/prysm/v3/encoding/bytesutil"
-	"github.com/prysmaticlabs/prysm/v3/runtime/version"
-	"github.com/prysmaticlabs/prysm/v3/testing/util"
-	"github.com/prysmaticlabs/prysm/v3/time/slots"
+	"github.com/prysmaticlabs/prysm/v4/beacon-chain/state"
+	"github.com/prysmaticlabs/prysm/v4/config/params"
+	"github.com/prysmaticlabs/prysm/v4/consensus-types/blocks"
+	"github.com/prysmaticlabs/prysm/v4/consensus-types/interfaces"
+	"github.com/prysmaticlabs/prysm/v4/encoding/bytesutil"
+	"github.com/prysmaticlabs/prysm/v4/runtime/version"
+	"github.com/prysmaticlabs/prysm/v4/testing/util"
+	"github.com/prysmaticlabs/prysm/v4/time/slots"
 
-	types "github.com/prysmaticlabs/prysm/v3/consensus-types/primitives"
-	ethpb "github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1"
-	"github.com/prysmaticlabs/prysm/v3/testing/require"
+	"github.com/prysmaticlabs/prysm/v4/consensus-types/primitives"
+	ethpb "github.com/prysmaticlabs/prysm/v4/proto/prysm/v1alpha1"
+	"github.com/prysmaticlabs/prysm/v4/testing/require"
 )
 
 func TestSlotFromBlock(t *testing.T) {
 	b := util.NewBeaconBlock()
-	var slot types.Slot = 3
+	var slot primitives.Slot = 3
 	b.Block.Slot = slot
 	bb, err := b.MarshalSSZ()
 	require.NoError(t, err)
@@ -48,7 +48,7 @@ func TestSlotFromBlock(t *testing.T) {
 }
 
 func TestByState(t *testing.T) {
-	undo, err := hackBellatrixMaxuint()
+	undo, err := hackDenebMaxuint()
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, undo())
@@ -58,10 +58,14 @@ func TestByState(t *testing.T) {
 	require.NoError(t, err)
 	bellaSlot, err := slots.EpochStart(bc.BellatrixForkEpoch)
 	require.NoError(t, err)
+	capellaSlot, err := slots.EpochStart(bc.CapellaForkEpoch)
+	require.NoError(t, err)
+	denebSlot, err := slots.EpochStart(bc.DenebForkEpoch)
+	require.NoError(t, err)
 	cases := []struct {
 		name        string
 		version     int
-		slot        types.Slot
+		slot        primitives.Slot
 		forkversion [4]byte
 	}{
 		{
@@ -81,6 +85,18 @@ func TestByState(t *testing.T) {
 			version:     version.Bellatrix,
 			slot:        bellaSlot,
 			forkversion: bytesutil.ToBytes4(bc.BellatrixForkVersion),
+		},
+		{
+			name:        "capella",
+			version:     version.Capella,
+			slot:        capellaSlot,
+			forkversion: bytesutil.ToBytes4(bc.CapellaForkVersion),
+		},
+		{
+			name:        "deneb",
+			version:     version.Deneb,
+			slot:        denebSlot,
+			forkversion: bytesutil.ToBytes4(bc.DenebForkVersion),
 		},
 	}
 	for _, c := range cases {
@@ -112,6 +128,8 @@ func stateForVersion(v int) (state.BeaconState, error) {
 		return util.NewBeaconStateBellatrix()
 	case version.Capella:
 		return util.NewBeaconStateCapella()
+	case version.Deneb:
+		return util.NewBeaconStateDeneb()
 	default:
 		return nil, fmt.Errorf("unrecognized version %d", v)
 	}
@@ -119,19 +137,24 @@ func stateForVersion(v int) (state.BeaconState, error) {
 
 func TestUnmarshalState(t *testing.T) {
 	ctx := context.Background()
-	undo, err := hackBellatrixMaxuint()
+	undo, err := hackDenebMaxuint()
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, undo())
 	}()
 	bc := params.BeaconConfig()
 	altairSlot, err := slots.EpochStart(bc.AltairForkEpoch)
+	require.NoError(t, err)
 	bellaSlot, err := slots.EpochStart(bc.BellatrixForkEpoch)
+	require.NoError(t, err)
+	capellaSlot, err := slots.EpochStart(bc.CapellaForkEpoch)
+	require.NoError(t, err)
+	denebSlot, err := slots.EpochStart(bc.DenebForkEpoch)
 	require.NoError(t, err)
 	cases := []struct {
 		name        string
 		version     int
-		slot        types.Slot
+		slot        primitives.Slot
 		forkversion [4]byte
 	}{
 		{
@@ -151,6 +174,18 @@ func TestUnmarshalState(t *testing.T) {
 			version:     version.Bellatrix,
 			slot:        bellaSlot,
 			forkversion: bytesutil.ToBytes4(bc.BellatrixForkVersion),
+		},
+		{
+			name:        "capella",
+			version:     version.Capella,
+			slot:        capellaSlot,
+			forkversion: bytesutil.ToBytes4(bc.CapellaForkVersion),
+		},
+		{
+			name:        "deneb",
+			version:     version.Deneb,
+			slot:        denebSlot,
+			forkversion: bytesutil.ToBytes4(bc.DenebForkVersion),
 		},
 	}
 	for _, c := range cases {
@@ -176,35 +211,41 @@ func TestUnmarshalState(t *testing.T) {
 	}
 }
 
-func hackBellatrixMaxuint() (func() error, error) {
-	// We monkey patch the config to use a smaller value for the bellatrix fork epoch.
+func hackDenebMaxuint() (func() error, error) {
+	// We monkey patch the config to use a smaller value for the next fork epoch (which is always set to maxint).
 	// Upstream configs use MaxUint64, which leads to a multiplication overflow when converting epoch->slot.
 	// Unfortunately we have unit tests that assert our config matches the upstream config, so we have to choose between
 	// breaking conformance, adding a special case to the conformance unit test, or patch it here.
 	bc := params.MainnetConfig().Copy()
-	bc.BellatrixForkEpoch = math.MaxUint32
+	bc.DenebForkEpoch = math.MaxUint32
 	undo, err := params.SetActiveWithUndo(bc)
 	return undo, err
 }
 
 func TestUnmarshalBlock(t *testing.T) {
-	undo, err := hackBellatrixMaxuint()
+	undo, err := hackDenebMaxuint()
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, undo())
 	}()
-	require.Equal(t, types.Epoch(math.MaxUint32), params.BeaconConfig().BellatrixForkEpoch)
 	genv := bytesutil.ToBytes4(params.BeaconConfig().GenesisForkVersion)
 	altairv := bytesutil.ToBytes4(params.BeaconConfig().AltairForkVersion)
 	bellav := bytesutil.ToBytes4(params.BeaconConfig().BellatrixForkVersion)
+	capellaV := bytesutil.ToBytes4(params.BeaconConfig().CapellaForkVersion)
+	denebV := bytesutil.ToBytes4(params.BeaconConfig().DenebForkVersion)
 	altairS, err := slots.EpochStart(params.BeaconConfig().AltairForkEpoch)
+	require.NoError(t, err)
 	bellaS, err := slots.EpochStart(params.BeaconConfig().BellatrixForkEpoch)
 	require.NoError(t, err)
+	capellaS, err := slots.EpochStart(params.BeaconConfig().CapellaForkEpoch)
+	require.NoError(t, err)
+	denebS, err := slots.EpochStart(params.BeaconConfig().DenebForkEpoch)
+	require.NoError(t, err)
 	cases := []struct {
-		b       func(*testing.T, types.Slot) interfaces.SignedBeaconBlock
+		b       func(*testing.T, primitives.Slot) interfaces.ReadOnlySignedBeaconBlock
 		name    string
 		version [4]byte
-		slot    types.Slot
+		slot    primitives.Slot
 		err     error
 	}{
 		{
@@ -235,6 +276,24 @@ func TestUnmarshalBlock(t *testing.T) {
 			b:       signedTestBlockBellatrix,
 			version: bellav,
 			slot:    bellaS,
+		},
+		{
+			name:    "first slot of capella",
+			b:       signedTestBlockCapella,
+			version: capellaV,
+			slot:    capellaS,
+		},
+		{
+			name:    "last slot of capella",
+			b:       signedTestBlockCapella,
+			version: capellaV,
+			slot:    denebS - 1,
+		},
+		{
+			name:    "first slot of deneb",
+			b:       signedTestBlockDeneb,
+			version: denebV,
+			slot:    denebS,
 		},
 		{
 			name:    "bellatrix block in altair slot",
@@ -280,23 +339,29 @@ func TestUnmarshalBlock(t *testing.T) {
 }
 
 func TestUnmarshalBlindedBlock(t *testing.T) {
-	undo, err := hackBellatrixMaxuint()
+	undo, err := hackDenebMaxuint()
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, undo())
 	}()
-	require.Equal(t, types.Epoch(math.MaxUint32), params.BeaconConfig().BellatrixForkEpoch)
 	genv := bytesutil.ToBytes4(params.BeaconConfig().GenesisForkVersion)
 	altairv := bytesutil.ToBytes4(params.BeaconConfig().AltairForkVersion)
 	bellav := bytesutil.ToBytes4(params.BeaconConfig().BellatrixForkVersion)
+	capellaV := bytesutil.ToBytes4(params.BeaconConfig().CapellaForkVersion)
+	denebV := bytesutil.ToBytes4(params.BeaconConfig().DenebForkVersion)
 	altairS, err := slots.EpochStart(params.BeaconConfig().AltairForkEpoch)
+	require.NoError(t, err)
 	bellaS, err := slots.EpochStart(params.BeaconConfig().BellatrixForkEpoch)
 	require.NoError(t, err)
+	capellaS, err := slots.EpochStart(params.BeaconConfig().CapellaForkEpoch)
+	require.NoError(t, err)
+	denebS, err := slots.EpochStart(params.BeaconConfig().DenebForkEpoch)
+	require.NoError(t, err)
 	cases := []struct {
-		b       func(*testing.T, types.Slot) interfaces.SignedBeaconBlock
+		b       func(*testing.T, primitives.Slot) interfaces.ReadOnlySignedBeaconBlock
 		name    string
 		version [4]byte
-		slot    types.Slot
+		slot    primitives.Slot
 		err     error
 	}{
 		{
@@ -336,6 +401,24 @@ func TestUnmarshalBlindedBlock(t *testing.T) {
 			err:     errBlockForkMismatch,
 		},
 		{
+			name:    "first slot of capella",
+			b:       signedTestBlindedBlockCapella,
+			version: capellaV,
+			slot:    capellaS,
+		},
+		{
+			name:    "last slot of capella",
+			b:       signedTestBlindedBlockCapella,
+			version: capellaV,
+			slot:    denebS - 1,
+		},
+		{
+			name:    "first slot of deneb",
+			b:       signedTestBlindedBlockDeneb,
+			version: denebV,
+			slot:    denebS,
+		},
+		{
 			name:    "genesis block in altair slot",
 			b:       signedTestBlockGenesis,
 			version: genv,
@@ -371,7 +454,7 @@ func TestUnmarshalBlindedBlock(t *testing.T) {
 	}
 }
 
-func signedTestBlockGenesis(t *testing.T, slot types.Slot) interfaces.SignedBeaconBlock {
+func signedTestBlockGenesis(t *testing.T, slot primitives.Slot) interfaces.ReadOnlySignedBeaconBlock {
 	b := util.NewBeaconBlock()
 	b.Block.Slot = slot
 	s, err := blocks.NewSignedBeaconBlock(b)
@@ -379,7 +462,7 @@ func signedTestBlockGenesis(t *testing.T, slot types.Slot) interfaces.SignedBeac
 	return s
 }
 
-func signedTestBlockAltair(t *testing.T, slot types.Slot) interfaces.SignedBeaconBlock {
+func signedTestBlockAltair(t *testing.T, slot primitives.Slot) interfaces.ReadOnlySignedBeaconBlock {
 	b := util.NewBeaconBlockAltair()
 	b.Block.Slot = slot
 	s, err := blocks.NewSignedBeaconBlock(b)
@@ -387,7 +470,7 @@ func signedTestBlockAltair(t *testing.T, slot types.Slot) interfaces.SignedBeaco
 	return s
 }
 
-func signedTestBlockBellatrix(t *testing.T, slot types.Slot) interfaces.SignedBeaconBlock {
+func signedTestBlockBellatrix(t *testing.T, slot primitives.Slot) interfaces.ReadOnlySignedBeaconBlock {
 	b := util.NewBeaconBlockBellatrix()
 	b.Block.Slot = slot
 	s, err := blocks.NewSignedBeaconBlock(b)
@@ -395,9 +478,41 @@ func signedTestBlockBellatrix(t *testing.T, slot types.Slot) interfaces.SignedBe
 	return s
 }
 
-func signedTestBlindedBlockBellatrix(t *testing.T, slot types.Slot) interfaces.SignedBeaconBlock {
+func signedTestBlindedBlockBellatrix(t *testing.T, slot primitives.Slot) interfaces.ReadOnlySignedBeaconBlock {
 	b := util.NewBlindedBeaconBlockBellatrix()
 	b.Block.Slot = slot
+	s, err := blocks.NewSignedBeaconBlock(b)
+	require.NoError(t, err)
+	return s
+}
+
+func signedTestBlockCapella(t *testing.T, slot primitives.Slot) interfaces.ReadOnlySignedBeaconBlock {
+	b := util.NewBeaconBlockCapella()
+	b.Block.Slot = slot
+	s, err := blocks.NewSignedBeaconBlock(b)
+	require.NoError(t, err)
+	return s
+}
+
+func signedTestBlindedBlockCapella(t *testing.T, slot primitives.Slot) interfaces.ReadOnlySignedBeaconBlock {
+	b := util.NewBlindedBeaconBlockCapella()
+	b.Block.Slot = slot
+	s, err := blocks.NewSignedBeaconBlock(b)
+	require.NoError(t, err)
+	return s
+}
+
+func signedTestBlockDeneb(t *testing.T, slot primitives.Slot) interfaces.ReadOnlySignedBeaconBlock {
+	b := util.NewBeaconBlockDeneb()
+	b.Block.Slot = slot
+	s, err := blocks.NewSignedBeaconBlock(b)
+	require.NoError(t, err)
+	return s
+}
+
+func signedTestBlindedBlockDeneb(t *testing.T, slot primitives.Slot) interfaces.ReadOnlySignedBeaconBlock {
+	b := util.NewBlindedBeaconBlockDeneb()
+	b.Message.Slot = slot
 	s, err := blocks.NewSignedBeaconBlock(b)
 	require.NoError(t, err)
 	return s

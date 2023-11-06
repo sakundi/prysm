@@ -12,15 +12,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/prysmaticlabs/prysm/v3/config/params"
-	"github.com/prysmaticlabs/prysm/v3/io/file"
-	"github.com/prysmaticlabs/prysm/v3/testing/assert"
-	"github.com/prysmaticlabs/prysm/v3/testing/require"
-	"github.com/prysmaticlabs/prysm/v3/validator/accounts"
-	"github.com/prysmaticlabs/prysm/v3/validator/accounts/iface"
-	"github.com/prysmaticlabs/prysm/v3/validator/keymanager"
-	"github.com/prysmaticlabs/prysm/v3/validator/keymanager/derived"
-	constant "github.com/prysmaticlabs/prysm/v3/validator/testing"
+	"github.com/prysmaticlabs/prysm/v4/config/params"
+	"github.com/prysmaticlabs/prysm/v4/io/file"
+	"github.com/prysmaticlabs/prysm/v4/testing/assert"
+	"github.com/prysmaticlabs/prysm/v4/testing/require"
+	"github.com/prysmaticlabs/prysm/v4/validator/accounts"
+	"github.com/prysmaticlabs/prysm/v4/validator/accounts/iface"
+	"github.com/prysmaticlabs/prysm/v4/validator/keymanager"
+	"github.com/prysmaticlabs/prysm/v4/validator/keymanager/derived"
+	constant "github.com/prysmaticlabs/prysm/v4/validator/testing"
 )
 
 func TestBackupAccounts_Noninteractive_Derived(t *testing.T) {
@@ -67,7 +67,7 @@ func TestBackupAccounts_Noninteractive_Derived(t *testing.T) {
 	// Create 2 accounts
 	derivedKM, ok := km.(*derived.Keymanager)
 	require.Equal(t, true, ok)
-	err = derivedKM.RecoverAccountsFromMnemonic(cliCtx.Context, constant.TestMnemonic, "", 2)
+	err = derivedKM.RecoverAccountsFromMnemonic(cliCtx.Context, constant.TestMnemonic, derived.DefaultMnemonicLanguage, "", 2)
 	require.NoError(t, err)
 
 	// Obtain the public keys of the accounts we created

@@ -3,10 +3,12 @@ package testing
 import (
 	"context"
 
-	types "github.com/prysmaticlabs/prysm/v3/consensus-types/primitives"
-	"github.com/prysmaticlabs/prysm/v3/encoding/bytesutil"
-	v1 "github.com/prysmaticlabs/prysm/v3/proto/engine/v1"
-	ethpb "github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1"
+	"github.com/prysmaticlabs/prysm/v4/api/client/builder"
+	"github.com/prysmaticlabs/prysm/v4/consensus-types/interfaces"
+	"github.com/prysmaticlabs/prysm/v4/consensus-types/primitives"
+	"github.com/prysmaticlabs/prysm/v4/encoding/bytesutil"
+	v1 "github.com/prysmaticlabs/prysm/v4/proto/engine/v1"
+	ethpb "github.com/prysmaticlabs/prysm/v4/proto/prysm/v1alpha1"
 )
 
 // MockClient is a mock implementation of BuilderClient.
@@ -25,7 +27,7 @@ func (MockClient) NodeURL() string {
 }
 
 // GetHeader --
-func (MockClient) GetHeader(_ context.Context, _ types.Slot, _ [32]byte, _ [48]byte) (*ethpb.SignedBuilderBid, error) {
+func (MockClient) GetHeader(_ context.Context, _ primitives.Slot, _ [32]byte, _ [48]byte) (builder.SignedBid, error) {
 	return nil, nil
 }
 
@@ -39,8 +41,8 @@ func (m MockClient) RegisterValidator(_ context.Context, svr []*ethpb.SignedVali
 }
 
 // SubmitBlindedBlock --
-func (MockClient) SubmitBlindedBlock(_ context.Context, _ *ethpb.SignedBlindedBeaconBlockBellatrix) (*v1.ExecutionPayload, error) {
-	return nil, nil
+func (MockClient) SubmitBlindedBlock(_ context.Context, _ interfaces.ReadOnlySignedBeaconBlock, _ []*ethpb.SignedBlindedBlobSidecar) (interfaces.ExecutionData, *v1.BlobsBundle, error) {
+	return nil, nil, nil
 }
 
 // Status --

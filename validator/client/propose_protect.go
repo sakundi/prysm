@@ -5,18 +5,16 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
-	"github.com/prysmaticlabs/prysm/v3/config/features"
-	fieldparams "github.com/prysmaticlabs/prysm/v3/config/fieldparams"
-	"github.com/prysmaticlabs/prysm/v3/config/params"
-	"github.com/prysmaticlabs/prysm/v3/consensus-types/interfaces"
+	fieldparams "github.com/prysmaticlabs/prysm/v4/config/fieldparams"
+	"github.com/prysmaticlabs/prysm/v4/config/params"
+	"github.com/prysmaticlabs/prysm/v4/consensus-types/interfaces"
 	"github.com/sirupsen/logrus"
 )
 
 var failedBlockSignLocalErr = "attempted to sign a double proposal, block rejected by local protection"
-var failedBlockSignExternalErr = "attempted a double proposal, block rejected by remote slashing protection"
 
 func (v *validator) slashableProposalCheck(
-	ctx context.Context, pubKey [fieldparams.BLSPubkeyLength]byte, signedBlock interfaces.SignedBeaconBlock, signingRoot [32]byte,
+	ctx context.Context, pubKey [fieldparams.BLSPubkeyLength]byte, signedBlock interfaces.ReadOnlySignedBeaconBlock, signingRoot [32]byte,
 ) error {
 	fmtKey := fmt.Sprintf("%#x", pubKey[:])
 
@@ -58,22 +56,6 @@ func (v *validator) slashableProposalCheck(
 		)
 	}
 
-	if features.Get().RemoteSlasherProtection {
-		blockHdr, err := interfaces.SignedBeaconBlockHeaderFromBlockInterface(signedBlock)
-		if err != nil {
-			return errors.Wrap(err, "failed to get block header from block")
-		}
-		slashing, err := v.slashingProtectionClient.IsSlashableBlock(ctx, blockHdr)
-		if err != nil {
-			return errors.Wrap(err, "could not check if block is slashable")
-		}
-		if slashing != nil && len(slashing.ProposerSlashings) > 0 {
-			if v.emitAccountMetrics {
-				ValidatorProposeFailVecSlasher.WithLabelValues(fmtKey).Inc()
-			}
-			return errors.New(failedBlockSignExternalErr)
-		}
-	}
 	if err := v.db.SaveProposalHistoryForSlot(ctx, pubKey, blk.Slot(), signingRoot[:]); err != nil {
 		if v.emitAccountMetrics {
 			ValidatorProposeFailVec.WithLabelValues(fmtKey).Inc()
@@ -83,7 +65,7 @@ func (v *validator) slashableProposalCheck(
 	return nil
 }
 
-func blockLogFields(pubKey [fieldparams.BLSPubkeyLength]byte, blk interfaces.BeaconBlock, sig []byte) logrus.Fields {
+func blockLogFields(pubKey [fieldparams.BLSPubkeyLength]byte, blk interfaces.ReadOnlyBeaconBlock, sig []byte) logrus.Fields {
 	fields := logrus.Fields{
 		"proposerPublicKey": fmt.Sprintf("%#x", pubKey),
 		"proposerIndex":     blk.ProposerIndex(),

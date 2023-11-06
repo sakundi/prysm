@@ -7,27 +7,28 @@ import (
 	"time"
 
 	"github.com/golang/mock/gomock"
-	mockChain "github.com/prysmaticlabs/prysm/v3/beacon-chain/blockchain/testing"
-	"github.com/prysmaticlabs/prysm/v3/beacon-chain/cache"
-	"github.com/prysmaticlabs/prysm/v3/beacon-chain/cache/depositcache"
-	"github.com/prysmaticlabs/prysm/v3/beacon-chain/core/altair"
-	"github.com/prysmaticlabs/prysm/v3/beacon-chain/core/execution"
-	"github.com/prysmaticlabs/prysm/v3/beacon-chain/core/feed"
-	statefeed "github.com/prysmaticlabs/prysm/v3/beacon-chain/core/feed/state"
-	"github.com/prysmaticlabs/prysm/v3/beacon-chain/core/helpers"
-	"github.com/prysmaticlabs/prysm/v3/beacon-chain/core/transition"
-	mockExecution "github.com/prysmaticlabs/prysm/v3/beacon-chain/execution/testing"
-	mockSync "github.com/prysmaticlabs/prysm/v3/beacon-chain/sync/initial-sync/testing"
-	fieldparams "github.com/prysmaticlabs/prysm/v3/config/fieldparams"
-	"github.com/prysmaticlabs/prysm/v3/config/params"
-	types "github.com/prysmaticlabs/prysm/v3/consensus-types/primitives"
-	"github.com/prysmaticlabs/prysm/v3/encoding/bytesutil"
-	ethpbv1 "github.com/prysmaticlabs/prysm/v3/proto/eth/v1"
-	ethpb "github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1"
-	"github.com/prysmaticlabs/prysm/v3/testing/assert"
-	"github.com/prysmaticlabs/prysm/v3/testing/mock"
-	"github.com/prysmaticlabs/prysm/v3/testing/require"
-	"github.com/prysmaticlabs/prysm/v3/testing/util"
+	mockChain "github.com/prysmaticlabs/prysm/v4/beacon-chain/blockchain/testing"
+	"github.com/prysmaticlabs/prysm/v4/beacon-chain/cache"
+	"github.com/prysmaticlabs/prysm/v4/beacon-chain/cache/depositcache"
+	"github.com/prysmaticlabs/prysm/v4/beacon-chain/core/altair"
+	"github.com/prysmaticlabs/prysm/v4/beacon-chain/core/execution"
+	"github.com/prysmaticlabs/prysm/v4/beacon-chain/core/feed"
+	statefeed "github.com/prysmaticlabs/prysm/v4/beacon-chain/core/feed/state"
+	"github.com/prysmaticlabs/prysm/v4/beacon-chain/core/helpers"
+	"github.com/prysmaticlabs/prysm/v4/beacon-chain/core/transition"
+	mockExecution "github.com/prysmaticlabs/prysm/v4/beacon-chain/execution/testing"
+	"github.com/prysmaticlabs/prysm/v4/beacon-chain/rpc/core"
+	mockSync "github.com/prysmaticlabs/prysm/v4/beacon-chain/sync/initial-sync/testing"
+	fieldparams "github.com/prysmaticlabs/prysm/v4/config/fieldparams"
+	"github.com/prysmaticlabs/prysm/v4/config/params"
+	"github.com/prysmaticlabs/prysm/v4/consensus-types/primitives"
+	"github.com/prysmaticlabs/prysm/v4/encoding/bytesutil"
+	ethpbv1 "github.com/prysmaticlabs/prysm/v4/proto/eth/v1"
+	ethpb "github.com/prysmaticlabs/prysm/v4/proto/prysm/v1alpha1"
+	"github.com/prysmaticlabs/prysm/v4/testing/assert"
+	"github.com/prysmaticlabs/prysm/v4/testing/mock"
+	"github.com/prysmaticlabs/prysm/v4/testing/require"
+	"github.com/prysmaticlabs/prysm/v4/testing/util"
 )
 
 // pubKey is a helper to generate a well-formed public key.
@@ -97,14 +98,14 @@ func TestGetDuties_OK(t *testing.T) {
 	res, err = vs.GetDuties(context.Background(), req)
 	require.NoError(t, err, "Could not call epoch committee assignment")
 	for i := 0; i < len(res.CurrentEpochDuties); i++ {
-		assert.Equal(t, types.ValidatorIndex(i), res.CurrentEpochDuties[i].ValidatorIndex)
+		assert.Equal(t, primitives.ValidatorIndex(i), res.CurrentEpochDuties[i].ValidatorIndex)
 	}
 }
 
 func TestGetAltairDuties_SyncCommitteeOK(t *testing.T) {
 	params.SetupTestConfigCleanup(t)
 	cfg := params.BeaconConfig().Copy()
-	cfg.AltairForkEpoch = types.Epoch(0)
+	cfg.AltairForkEpoch = primitives.Epoch(0)
 	params.OverrideBeaconConfig(cfg)
 
 	genesis := util.NewBeaconBlock()
@@ -132,7 +133,7 @@ func TestGetAltairDuties_SyncCommitteeOK(t *testing.T) {
 		pubKeys[i] = deposits[i].Data.PublicKey
 		indices[i] = uint64(i)
 	}
-	require.NoError(t, bs.SetSlot(params.BeaconConfig().SlotsPerEpoch*types.Slot(params.BeaconConfig().EpochsPerSyncCommitteePeriod)-1))
+	require.NoError(t, bs.SetSlot(params.BeaconConfig().SlotsPerEpoch*primitives.Slot(params.BeaconConfig().EpochsPerSyncCommitteePeriod)-1))
 	require.NoError(t, helpers.UpdateSyncCommitteeCache(bs))
 
 	pubkeysAs48ByteType := make([][fieldparams.BLSPubkeyLength]byte, len(pubKeys))
@@ -183,7 +184,7 @@ func TestGetAltairDuties_SyncCommitteeOK(t *testing.T) {
 	res, err = vs.GetDuties(context.Background(), req)
 	require.NoError(t, err, "Could not call epoch committee assignment")
 	for i := 0; i < len(res.CurrentEpochDuties); i++ {
-		require.Equal(t, types.ValidatorIndex(i), res.CurrentEpochDuties[i].ValidatorIndex)
+		require.Equal(t, primitives.ValidatorIndex(i), res.CurrentEpochDuties[i].ValidatorIndex)
 	}
 	for i := 0; i < len(res.CurrentEpochDuties); i++ {
 		require.Equal(t, true, res.CurrentEpochDuties[i].IsSyncCommittee)
@@ -206,8 +207,8 @@ func TestGetAltairDuties_SyncCommitteeOK(t *testing.T) {
 func TestGetBellatrixDuties_SyncCommitteeOK(t *testing.T) {
 	params.SetupTestConfigCleanup(t)
 	cfg := params.BeaconConfig().Copy()
-	cfg.AltairForkEpoch = types.Epoch(0)
-	cfg.BellatrixForkEpoch = types.Epoch(1)
+	cfg.AltairForkEpoch = primitives.Epoch(0)
+	cfg.BellatrixForkEpoch = primitives.Epoch(1)
 	params.OverrideBeaconConfig(cfg)
 
 	genesis := util.NewBeaconBlock()
@@ -235,7 +236,7 @@ func TestGetBellatrixDuties_SyncCommitteeOK(t *testing.T) {
 		pubKeys[i] = deposits[i].Data.PublicKey
 		indices[i] = uint64(i)
 	}
-	require.NoError(t, bs.SetSlot(params.BeaconConfig().SlotsPerEpoch*types.Slot(params.BeaconConfig().EpochsPerSyncCommitteePeriod)-1))
+	require.NoError(t, bs.SetSlot(params.BeaconConfig().SlotsPerEpoch*primitives.Slot(params.BeaconConfig().EpochsPerSyncCommitteePeriod)-1))
 	require.NoError(t, helpers.UpdateSyncCommitteeCache(bs))
 
 	bs, err = execution.UpgradeToBellatrix(bs)
@@ -289,7 +290,7 @@ func TestGetBellatrixDuties_SyncCommitteeOK(t *testing.T) {
 	res, err = vs.GetDuties(context.Background(), req)
 	require.NoError(t, err, "Could not call epoch committee assignment")
 	for i := 0; i < len(res.CurrentEpochDuties); i++ {
-		assert.Equal(t, types.ValidatorIndex(i), res.CurrentEpochDuties[i].ValidatorIndex)
+		assert.Equal(t, primitives.ValidatorIndex(i), res.CurrentEpochDuties[i].ValidatorIndex)
 	}
 	for i := 0; i < len(res.CurrentEpochDuties); i++ {
 		assert.Equal(t, true, res.CurrentEpochDuties[i].IsSyncCommittee)
@@ -312,7 +313,7 @@ func TestGetBellatrixDuties_SyncCommitteeOK(t *testing.T) {
 func TestGetAltairDuties_UnknownPubkey(t *testing.T) {
 	params.SetupTestConfigCleanup(t)
 	cfg := params.BeaconConfig().Copy()
-	cfg.AltairForkEpoch = types.Epoch(0)
+	cfg.AltairForkEpoch = primitives.Epoch(0)
 	params.OverrideBeaconConfig(cfg)
 
 	genesis := util.NewBeaconBlock()
@@ -332,7 +333,7 @@ func TestGetAltairDuties_UnknownPubkey(t *testing.T) {
 	genesisRoot, err := genesis.Block.HashTreeRoot()
 	require.NoError(t, err, "Could not get signing root")
 
-	require.NoError(t, bs.SetSlot(params.BeaconConfig().SlotsPerEpoch*types.Slot(params.BeaconConfig().EpochsPerSyncCommitteePeriod)-1))
+	require.NoError(t, bs.SetSlot(params.BeaconConfig().SlotsPerEpoch*primitives.Slot(params.BeaconConfig().EpochsPerSyncCommitteePeriod)-1))
 	require.NoError(t, helpers.UpdateSyncCommitteeCache(bs))
 
 	slot := uint64(params.BeaconConfig().SlotsPerEpoch) * uint64(params.BeaconConfig().EpochsPerSyncCommitteePeriod) * params.BeaconConfig().SecondsPerSlot
@@ -369,7 +370,7 @@ func TestGetDuties_SlotOutOfUpperBound(t *testing.T) {
 		TimeFetcher: chain,
 	}
 	req := &ethpb.DutiesRequest{
-		Epoch: types.Epoch(chain.CurrentSlot()/params.BeaconConfig().SlotsPerEpoch + 2),
+		Epoch: primitives.Epoch(chain.CurrentSlot()/params.BeaconConfig().SlotsPerEpoch + 2),
 	}
 	_, err := vs.duties(context.Background(), req)
 	require.ErrorContains(t, "can not be greater than next epoch", err)
@@ -456,8 +457,8 @@ func TestGetDuties_MultipleKeys_OK(t *testing.T) {
 	res, err := vs.GetDuties(context.Background(), req)
 	require.NoError(t, err, "Could not call epoch committee assignment")
 	assert.Equal(t, 2, len(res.CurrentEpochDuties))
-	assert.Equal(t, types.Slot(4), res.CurrentEpochDuties[0].AttesterSlot)
-	assert.Equal(t, types.Slot(4), res.CurrentEpochDuties[1].AttesterSlot)
+	assert.Equal(t, primitives.Slot(4), res.CurrentEpochDuties[0].AttesterSlot)
+	assert.Equal(t, primitives.Slot(4), res.CurrentEpochDuties[1].AttesterSlot)
 }
 
 func TestGetDuties_SyncNotReady(t *testing.T) {
@@ -606,8 +607,7 @@ func TestStreamDuties_OK_ChainReorg(t *testing.T) {
 func TestAssignValidatorToSubnet(t *testing.T) {
 	k := pubKey(3)
 
-	vs := Server{}
-	vs.AssignValidatorToSubnet(k, ethpb.ValidatorStatus_ACTIVE)
+	core.AssignValidatorToSubnetProto(k, ethpb.ValidatorStatus_ACTIVE)
 	coms, ok, exp := cache.SubnetIDs.GetPersistentSubnets(k)
 	require.Equal(t, true, ok, "No cache entry found for validator")
 	assert.Equal(t, params.BeaconConfig().RandomSubnetsPerValidator, uint64(len(coms)))

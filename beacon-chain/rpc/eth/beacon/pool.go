@@ -2,136 +2,27 @@ package beacon
 
 import (
 	"context"
+	"time"
 
-	"github.com/prysmaticlabs/prysm/v3/api/grpc"
-	"github.com/prysmaticlabs/prysm/v3/beacon-chain/core/blocks"
-	"github.com/prysmaticlabs/prysm/v3/beacon-chain/core/feed"
-	"github.com/prysmaticlabs/prysm/v3/beacon-chain/core/feed/operation"
-	corehelpers "github.com/prysmaticlabs/prysm/v3/beacon-chain/core/helpers"
-	"github.com/prysmaticlabs/prysm/v3/beacon-chain/core/transition"
-	"github.com/prysmaticlabs/prysm/v3/beacon-chain/rpc/eth/helpers"
-	"github.com/prysmaticlabs/prysm/v3/config/features"
-	"github.com/prysmaticlabs/prysm/v3/crypto/bls"
-	ethpbv1 "github.com/prysmaticlabs/prysm/v3/proto/eth/v1"
-	"github.com/prysmaticlabs/prysm/v3/proto/migration"
-	ethpbalpha "github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1"
-	"github.com/prysmaticlabs/prysm/v3/time/slots"
+	"github.com/prysmaticlabs/prysm/v4/api/grpc"
+	"github.com/prysmaticlabs/prysm/v4/beacon-chain/core/blocks"
+	"github.com/prysmaticlabs/prysm/v4/beacon-chain/core/feed"
+	"github.com/prysmaticlabs/prysm/v4/beacon-chain/core/feed/operation"
+	"github.com/prysmaticlabs/prysm/v4/beacon-chain/core/transition"
+	"github.com/prysmaticlabs/prysm/v4/beacon-chain/rpc/eth/helpers"
+	"github.com/prysmaticlabs/prysm/v4/config/features"
+	ethpbv1 "github.com/prysmaticlabs/prysm/v4/proto/eth/v1"
+	ethpbv2 "github.com/prysmaticlabs/prysm/v4/proto/eth/v2"
+	"github.com/prysmaticlabs/prysm/v4/proto/migration"
+	ethpbalpha "github.com/prysmaticlabs/prysm/v4/proto/prysm/v1alpha1"
+	"github.com/prysmaticlabs/prysm/v4/runtime/version"
 	"go.opencensus.io/trace"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
-// ListPoolAttestations retrieves attestations known by the node but
-// not necessarily incorporated into any block. Allows filtering by committee index or slot.
-func (bs *Server) ListPoolAttestations(ctx context.Context, req *ethpbv1.AttestationsPoolRequest) (*ethpbv1.AttestationsPoolResponse, error) {
-	ctx, span := trace.StartSpan(ctx, "beacon.ListPoolAttestations")
-	defer span.End()
-
-	attestations := bs.AttestationsPool.AggregatedAttestations()
-	unaggAtts, err := bs.AttestationsPool.UnaggregatedAttestations()
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "Could not get unaggregated attestations: %v", err)
-	}
-	attestations = append(attestations, unaggAtts...)
-	isEmptyReq := req.Slot == nil && req.CommitteeIndex == nil
-	if isEmptyReq {
-		allAtts := make([]*ethpbv1.Attestation, len(attestations))
-		for i, att := range attestations {
-			allAtts[i] = migration.V1Alpha1AttestationToV1(att)
-		}
-		return &ethpbv1.AttestationsPoolResponse{Data: allAtts}, nil
-	}
-
-	filteredAtts := make([]*ethpbv1.Attestation, 0, len(attestations))
-	for _, att := range attestations {
-		bothDefined := req.Slot != nil && req.CommitteeIndex != nil
-		committeeIndexMatch := req.CommitteeIndex != nil && att.Data.CommitteeIndex == *req.CommitteeIndex
-		slotMatch := req.Slot != nil && att.Data.Slot == *req.Slot
-
-		if bothDefined && committeeIndexMatch && slotMatch {
-			filteredAtts = append(filteredAtts, migration.V1Alpha1AttestationToV1(att))
-		} else if !bothDefined && (committeeIndexMatch || slotMatch) {
-			filteredAtts = append(filteredAtts, migration.V1Alpha1AttestationToV1(att))
-		}
-	}
-	return &ethpbv1.AttestationsPoolResponse{Data: filteredAtts}, nil
-}
-
-// SubmitAttestations submits Attestation object to node. If attestation passes all validation
-// constraints, node MUST publish attestation on appropriate subnet.
-func (bs *Server) SubmitAttestations(ctx context.Context, req *ethpbv1.SubmitAttestationsRequest) (*emptypb.Empty, error) {
-	ctx, span := trace.StartSpan(ctx, "beacon.SubmitAttestation")
-	defer span.End()
-
-	var validAttestations []*ethpbalpha.Attestation
-	var attFailures []*helpers.SingleIndexedVerificationFailure
-	for i, sourceAtt := range req.Data {
-		att := migration.V1AttToV1Alpha1(sourceAtt)
-		if _, err := bls.SignatureFromBytes(att.Signature); err != nil {
-			attFailures = append(attFailures, &helpers.SingleIndexedVerificationFailure{
-				Index:   i,
-				Message: "Incorrect attestation signature: " + err.Error(),
-			})
-			continue
-		}
-
-		// Broadcast the unaggregated attestation on a feed to notify other services in the beacon node
-		// of a received unaggregated attestation.
-		bs.OperationNotifier.OperationFeed().Send(&feed.Event{
-			Type: operation.UnaggregatedAttReceived,
-			Data: &operation.UnAggregatedAttReceivedData{
-				Attestation: att,
-			},
-		})
-
-		validAttestations = append(validAttestations, att)
-
-		go func() {
-			ctx = trace.NewContext(context.Background(), trace.FromContext(ctx))
-			attCopy := ethpbalpha.CopyAttestation(att)
-			if err := bs.AttestationsPool.SaveUnaggregatedAttestation(attCopy); err != nil {
-				log.WithError(err).Error("Could not handle attestation in operations service")
-				return
-			}
-		}()
-	}
-
-	broadcastFailed := false
-	for _, att := range validAttestations {
-		// Determine subnet to broadcast attestation to
-		wantedEpoch := slots.ToEpoch(att.Data.Slot)
-		vals, err := bs.HeadFetcher.HeadValidatorsIndices(ctx, wantedEpoch)
-		if err != nil {
-			return nil, err
-		}
-		subnet := corehelpers.ComputeSubnetFromCommitteeAndSlot(uint64(len(vals)), att.Data.CommitteeIndex, att.Data.Slot)
-
-		if err := bs.Broadcaster.BroadcastAttestation(ctx, subnet, att); err != nil {
-			broadcastFailed = true
-		}
-	}
-	if broadcastFailed {
-		return nil, status.Errorf(
-			codes.Internal,
-			"Could not publish one or more attestations. Some attestations could be published successfully.")
-	}
-
-	if len(attFailures) > 0 {
-		failuresContainer := &helpers.IndexedVerificationFailure{Failures: attFailures}
-		err := grpc.AppendCustomErrorHeader(ctx, failuresContainer)
-		if err != nil {
-			return nil, status.Errorf(
-				codes.InvalidArgument,
-				"One or more attestations failed validation. Could not prepare attestation failure information: %v",
-				err,
-			)
-		}
-		return nil, status.Errorf(codes.InvalidArgument, "One or more attestations failed validation")
-	}
-
-	return &emptypb.Empty{}, nil
-}
+const broadcastBLSChangesRateLimit = 128
 
 // ListPoolAttesterSlashings retrieves attester slashings known by the node but
 // not necessarily incorporated into any block.
@@ -139,7 +30,7 @@ func (bs *Server) ListPoolAttesterSlashings(ctx context.Context, _ *emptypb.Empt
 	ctx, span := trace.StartSpan(ctx, "beacon.ListPoolAttesterSlashings")
 	defer span.End()
 
-	headState, err := bs.ChainInfoFetcher.HeadState(ctx)
+	headState, err := bs.ChainInfoFetcher.HeadStateReadOnly(ctx)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "Could not get head state: %v", err)
 	}
@@ -181,7 +72,7 @@ func (bs *Server) SubmitAttesterSlashing(ctx context.Context, req *ethpbv1.Attes
 		return nil, status.Errorf(codes.Internal, "Could not insert attester slashing into pool: %v", err)
 	}
 	if !features.Get().DisableBroadcastSlashings {
-		if err := bs.Broadcaster.Broadcast(ctx, req); err != nil {
+		if err := bs.Broadcaster.Broadcast(ctx, alphaSlashing); err != nil {
 			return nil, status.Errorf(codes.Internal, "Could not broadcast slashing object: %v", err)
 		}
 	}
@@ -195,7 +86,7 @@ func (bs *Server) ListPoolProposerSlashings(ctx context.Context, _ *emptypb.Empt
 	ctx, span := trace.StartSpan(ctx, "beacon.ListPoolProposerSlashings")
 	defer span.End()
 
-	headState, err := bs.ChainInfoFetcher.HeadState(ctx)
+	headState, err := bs.ChainInfoFetcher.HeadStateReadOnly(ctx)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "Could not get head state: %v", err)
 	}
@@ -237,7 +128,7 @@ func (bs *Server) SubmitProposerSlashing(ctx context.Context, req *ethpbv1.Propo
 		return nil, status.Errorf(codes.Internal, "Could not insert proposer slashing into pool: %v", err)
 	}
 	if !features.Get().DisableBroadcastSlashings {
-		if err := bs.Broadcaster.Broadcast(ctx, req); err != nil {
+		if err := bs.Broadcaster.Broadcast(ctx, alphaSlashing); err != nil {
 			return nil, status.Errorf(codes.Internal, "Could not broadcast slashing object: %v", err)
 		}
 	}
@@ -245,62 +136,126 @@ func (bs *Server) SubmitProposerSlashing(ctx context.Context, req *ethpbv1.Propo
 	return &emptypb.Empty{}, nil
 }
 
-// ListPoolVoluntaryExits retrieves voluntary exits known by the node but
-// not necessarily incorporated into any block.
-func (bs *Server) ListPoolVoluntaryExits(ctx context.Context, _ *emptypb.Empty) (*ethpbv1.VoluntaryExitsPoolResponse, error) {
-	ctx, span := trace.StartSpan(ctx, "beacon.ListPoolVoluntaryExits")
+// SubmitSignedBLSToExecutionChanges submits said object to the node's pool
+// if it passes validation the node must broadcast it to the network.
+func (bs *Server) SubmitSignedBLSToExecutionChanges(ctx context.Context, req *ethpbv2.SubmitBLSToExecutionChangesRequest) (*emptypb.Empty, error) {
+	ctx, span := trace.StartSpan(ctx, "beacon.SubmitSignedBLSToExecutionChanges")
 	defer span.End()
-
-	headState, err := bs.ChainInfoFetcher.HeadState(ctx)
+	st, err := bs.ChainInfoFetcher.HeadStateReadOnly(ctx)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "Could not get head state: %v", err)
 	}
+	var failures []*helpers.SingleIndexedVerificationFailure
+	var toBroadcast []*ethpbalpha.SignedBLSToExecutionChange
 
-	sourceExits := bs.VoluntaryExitsPool.PendingExits(headState, headState.Slot(), true /* return unlimited exits */)
-
-	exits := make([]*ethpbv1.SignedVoluntaryExit, len(sourceExits))
-	for i, s := range sourceExits {
-		exits[i] = migration.V1Alpha1ExitToV1(s)
+	for i, change := range req.GetChanges() {
+		alphaChange := migration.V2SignedBLSToExecutionChangeToV1Alpha1(change)
+		_, err = blocks.ValidateBLSToExecutionChange(st, alphaChange)
+		if err != nil {
+			failures = append(failures, &helpers.SingleIndexedVerificationFailure{
+				Index:   i,
+				Message: "Could not validate SignedBLSToExecutionChange: " + err.Error(),
+			})
+			continue
+		}
+		if err := blocks.VerifyBLSChangeSignature(st, change); err != nil {
+			failures = append(failures, &helpers.SingleIndexedVerificationFailure{
+				Index:   i,
+				Message: "Could not validate signature: " + err.Error(),
+			})
+			continue
+		}
+		bs.OperationNotifier.OperationFeed().Send(&feed.Event{
+			Type: operation.BLSToExecutionChangeReceived,
+			Data: &operation.BLSToExecutionChangeReceivedData{
+				Change: alphaChange,
+			},
+		})
+		bs.BLSChangesPool.InsertBLSToExecChange(alphaChange)
+		if st.Version() >= version.Capella {
+			toBroadcast = append(toBroadcast, alphaChange)
+		}
 	}
-
-	return &ethpbv1.VoluntaryExitsPoolResponse{
-		Data: exits,
-	}, nil
+	go bs.broadcastBLSChanges(ctx, toBroadcast)
+	if len(failures) > 0 {
+		failuresContainer := &helpers.IndexedVerificationFailure{Failures: failures}
+		err := grpc.AppendCustomErrorHeader(ctx, failuresContainer)
+		if err != nil {
+			return nil, status.Errorf(
+				codes.InvalidArgument,
+				"One or more BLSToExecutionChange failed validation. Could not prepare BLSToExecutionChange failure information: %v",
+				err,
+			)
+		}
+		return nil, status.Errorf(codes.InvalidArgument, "One or more BLSToExecutionChange failed validation")
+	}
+	return &emptypb.Empty{}, nil
 }
 
-// SubmitVoluntaryExit submits SignedVoluntaryExit object to node's pool
-// and if passes validation node MUST broadcast it to network.
-func (bs *Server) SubmitVoluntaryExit(ctx context.Context, req *ethpbv1.SignedVoluntaryExit) (*emptypb.Empty, error) {
-	ctx, span := trace.StartSpan(ctx, "beacon.SubmitVoluntaryExit")
+// broadcastBLSBatch broadcasts the first `broadcastBLSChangesRateLimit` messages from the slice pointed to by ptr.
+// It validates the messages again because they could have been invalidated by being included in blocks since the last validation.
+// It removes the messages from the slice and modifies it in place.
+func (bs *Server) broadcastBLSBatch(ctx context.Context, ptr *[]*ethpbalpha.SignedBLSToExecutionChange) {
+	limit := broadcastBLSChangesRateLimit
+	if len(*ptr) < broadcastBLSChangesRateLimit {
+		limit = len(*ptr)
+	}
+	st, err := bs.ChainInfoFetcher.HeadStateReadOnly(ctx)
+	if err != nil {
+		log.WithError(err).Error("could not get head state")
+		return
+	}
+	for _, ch := range (*ptr)[:limit] {
+		if ch != nil {
+			_, err := blocks.ValidateBLSToExecutionChange(st, ch)
+			if err != nil {
+				log.WithError(err).Error("could not validate BLS to execution change")
+				continue
+			}
+			if err := bs.Broadcaster.Broadcast(ctx, ch); err != nil {
+				log.WithError(err).Error("could not broadcast BLS to execution changes.")
+			}
+		}
+	}
+	*ptr = (*ptr)[limit:]
+}
+
+func (bs *Server) broadcastBLSChanges(ctx context.Context, changes []*ethpbalpha.SignedBLSToExecutionChange) {
+	bs.broadcastBLSBatch(ctx, &changes)
+	if len(changes) == 0 {
+		return
+	}
+
+	ticker := time.NewTicker(500 * time.Millisecond)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			bs.broadcastBLSBatch(ctx, &changes)
+			if len(changes) == 0 {
+				return
+			}
+		}
+	}
+}
+
+// ListBLSToExecutionChanges retrieves BLS to execution changes known by the node but not necessarily incorporated into any block
+func (bs *Server) ListBLSToExecutionChanges(ctx context.Context, _ *emptypb.Empty) (*ethpbv2.BLSToExecutionChangesPoolResponse, error) {
+	ctx, span := trace.StartSpan(ctx, "beacon.ListBLSToExecutionChanges")
 	defer span.End()
 
-	headState, err := bs.ChainInfoFetcher.HeadState(ctx)
+	sourceChanges, err := bs.BLSChangesPool.PendingBLSToExecChanges()
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "Could not get head state: %v", err)
-	}
-	s, err := slots.EpochStart(req.Message.Epoch)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "Could not get epoch from message: %v", err)
-	}
-	headState, err = transition.ProcessSlotsIfPossible(ctx, headState, s)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "Could not process slots: %v", err)
+		return nil, status.Errorf(codes.Internal, "Could not get BLS to execution changes: %v", err)
 	}
 
-	validator, err := headState.ValidatorAtIndexReadOnly(req.Message.ValidatorIndex)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "Could not get exiting validator: %v", err)
-	}
-	alphaExit := migration.V1ExitToV1Alpha1(req)
-	err = blocks.VerifyExitAndSignature(validator, headState.Slot(), headState.Fork(), alphaExit, headState.GenesisValidatorsRoot())
-	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "Invalid voluntary exit: %v", err)
+	changes := make([]*ethpbv2.SignedBLSToExecutionChange, len(sourceChanges))
+	for i, ch := range sourceChanges {
+		changes[i] = migration.V1Alpha1SignedBLSToExecChangeToV2(ch)
 	}
 
-	bs.VoluntaryExitsPool.InsertVoluntaryExit(ctx, headState, alphaExit)
-	if err := bs.Broadcaster.Broadcast(ctx, alphaExit); err != nil {
-		return nil, status.Errorf(codes.Internal, "Could not broadcast voluntary exit object: %v", err)
-	}
-
-	return &emptypb.Empty{}, nil
+	return &ethpbv2.BLSToExecutionChangesPoolResponse{
+		Data: changes,
+	}, nil
 }

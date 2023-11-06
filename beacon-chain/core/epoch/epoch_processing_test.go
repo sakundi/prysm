@@ -7,18 +7,20 @@ import (
 	"testing"
 
 	"github.com/prysmaticlabs/go-bitfield"
-	"github.com/prysmaticlabs/prysm/v3/beacon-chain/core/epoch"
-	"github.com/prysmaticlabs/prysm/v3/beacon-chain/core/helpers"
-	"github.com/prysmaticlabs/prysm/v3/beacon-chain/core/time"
-	"github.com/prysmaticlabs/prysm/v3/beacon-chain/state"
-	state_native "github.com/prysmaticlabs/prysm/v3/beacon-chain/state/state-native"
-	fieldparams "github.com/prysmaticlabs/prysm/v3/config/fieldparams"
-	"github.com/prysmaticlabs/prysm/v3/config/params"
-	types "github.com/prysmaticlabs/prysm/v3/consensus-types/primitives"
-	ethpb "github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1"
-	"github.com/prysmaticlabs/prysm/v3/testing/assert"
-	"github.com/prysmaticlabs/prysm/v3/testing/require"
-	"github.com/prysmaticlabs/prysm/v3/testing/util"
+	"github.com/prysmaticlabs/prysm/v4/beacon-chain/core/epoch"
+	"github.com/prysmaticlabs/prysm/v4/beacon-chain/core/helpers"
+	"github.com/prysmaticlabs/prysm/v4/beacon-chain/core/time"
+	"github.com/prysmaticlabs/prysm/v4/beacon-chain/core/transition"
+	"github.com/prysmaticlabs/prysm/v4/beacon-chain/state"
+	state_native "github.com/prysmaticlabs/prysm/v4/beacon-chain/state/state-native"
+	"github.com/prysmaticlabs/prysm/v4/beacon-chain/state/stateutil"
+	fieldparams "github.com/prysmaticlabs/prysm/v4/config/fieldparams"
+	"github.com/prysmaticlabs/prysm/v4/config/params"
+	"github.com/prysmaticlabs/prysm/v4/consensus-types/primitives"
+	ethpb "github.com/prysmaticlabs/prysm/v4/proto/prysm/v1alpha1"
+	"github.com/prysmaticlabs/prysm/v4/testing/assert"
+	"github.com/prysmaticlabs/prysm/v4/testing/require"
+	"github.com/prysmaticlabs/prysm/v4/testing/util"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -114,7 +116,7 @@ func TestAttestingBalance_CorrectBalance(t *testing.T) {
 			Data: &ethpb.AttestationData{
 				Target: &ethpb.Checkpoint{Root: make([]byte, fieldparams.RootLength)},
 				Source: &ethpb.Checkpoint{Root: make([]byte, fieldparams.RootLength)},
-				Slot:   types.Slot(i),
+				Slot:   primitives.Slot(i),
 			},
 			AggregationBits: bitfield.Bitlist{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
 				0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x01},
@@ -274,7 +276,9 @@ func TestProcessFinalUpdates_CanProcess(t *testing.T) {
 	assert.DeepNotEqual(t, params.BeaconConfig().ZeroHash[:], mix, "latest RANDAO still zero hashes")
 
 	// Verify historical root accumulator was appended.
-	assert.Equal(t, 1, len(newS.HistoricalRoots()), "Unexpected slashed balance")
+	roots, err := newS.HistoricalRoots()
+	require.NoError(t, err)
+	assert.Equal(t, 1, len(roots), "Unexpected slashed balance")
 	currAtt, err := newS.CurrentEpochAttestations()
 	require.NoError(t, err)
 	assert.NotNil(t, currAtt, "Nil value stored in current epoch attestations instead of empty slice")
@@ -307,8 +311,7 @@ func TestProcessRegistryUpdates_EligibleToActivate(t *testing.T) {
 		Slot:                5 * params.BeaconConfig().SlotsPerEpoch,
 		FinalizedCheckpoint: &ethpb.Checkpoint{Epoch: 6, Root: make([]byte, fieldparams.RootLength)},
 	}
-	limit, err := helpers.ValidatorChurnLimit(0)
-	require.NoError(t, err)
+	limit := helpers.ValidatorActivationChurnLimit(0)
 	for i := uint64(0); i < limit+10; i++ {
 		base.Validators = append(base.Validators, &ethpb.Validator{
 			ActivationEligibilityEpoch: params.BeaconConfig().FarFutureEpoch,
@@ -328,6 +331,42 @@ func TestProcessRegistryUpdates_EligibleToActivate(t *testing.T) {
 				i, helpers.ActivationExitEpoch(currentEpoch), validator.ActivationEpoch)
 		}
 		if uint64(i) >= limit && validator.ActivationEpoch != params.BeaconConfig().FarFutureEpoch {
+			t.Errorf("Could not update registry %d, validators should not have been activated, wanted activation epoch: %d, got %d",
+				i, params.BeaconConfig().FarFutureEpoch, validator.ActivationEpoch)
+		}
+	}
+}
+
+func TestProcessRegistryUpdates_EligibleToActivate_Cancun(t *testing.T) {
+	base := &ethpb.BeaconStateDeneb{
+		Slot:                5 * params.BeaconConfig().SlotsPerEpoch,
+		FinalizedCheckpoint: &ethpb.Checkpoint{Epoch: 6, Root: make([]byte, fieldparams.RootLength)},
+	}
+	cfg := params.BeaconConfig()
+	cfg.MinPerEpochChurnLimit = 10
+	cfg.ChurnLimitQuotient = 1
+	params.OverrideBeaconConfig(cfg)
+
+	for i := uint64(0); i < 10; i++ {
+		base.Validators = append(base.Validators, &ethpb.Validator{
+			ActivationEligibilityEpoch: params.BeaconConfig().FarFutureEpoch,
+			EffectiveBalance:           params.BeaconConfig().MaxEffectiveBalance,
+			ActivationEpoch:            params.BeaconConfig().FarFutureEpoch,
+		})
+	}
+	beaconState, err := state_native.InitializeFromProtoDeneb(base)
+	require.NoError(t, err)
+	currentEpoch := time.CurrentEpoch(beaconState)
+	newState, err := epoch.ProcessRegistryUpdates(context.Background(), beaconState)
+	require.NoError(t, err)
+	for i, validator := range newState.Validators() {
+		assert.Equal(t, currentEpoch+1, validator.ActivationEligibilityEpoch, "Could not update registry %d, unexpected activation eligibility epoch", i)
+		// Note: In Deneb, only validators indices before `MaxPerEpochActivationChurnLimit` should be activated.
+		if uint64(i) < params.BeaconConfig().MaxPerEpochActivationChurnLimit && validator.ActivationEpoch != helpers.ActivationExitEpoch(currentEpoch) {
+			t.Errorf("Could not update registry %d, validators failed to activate: wanted activation epoch %d, got %d",
+				i, helpers.ActivationExitEpoch(currentEpoch), validator.ActivationEpoch)
+		}
+		if uint64(i) >= params.BeaconConfig().MaxPerEpochActivationChurnLimit && validator.ActivationEpoch != params.BeaconConfig().FarFutureEpoch {
 			t.Errorf("Could not update registry %d, validators should not have been activated, wanted activation epoch: %d, got %d",
 				i, params.BeaconConfig().FarFutureEpoch, validator.ActivationEpoch)
 		}
@@ -379,7 +418,7 @@ func TestProcessRegistryUpdates_ValidatorsEjected(t *testing.T) {
 }
 
 func TestProcessRegistryUpdates_CanExits(t *testing.T) {
-	e := types.Epoch(5)
+	e := primitives.Epoch(5)
 	exitEpoch := helpers.ActivationExitEpoch(e)
 	minWithdrawalDelay := params.BeaconConfig().MinValidatorWithdrawabilityDelay
 	base := &ethpb.BeaconState{
@@ -403,7 +442,7 @@ func TestProcessRegistryUpdates_CanExits(t *testing.T) {
 	}
 }
 
-func buildState(t testing.TB, slot types.Slot, validatorCount uint64) state.BeaconState {
+func buildState(t testing.TB, slot primitives.Slot, validatorCount uint64) state.BeaconState {
 	validators := make([]*ethpb.Validator, validatorCount)
 	for i := 0; i < len(validators); i++ {
 		validators[i] = &ethpb.Validator{
@@ -454,4 +493,84 @@ func TestProcessSlashings_BadValue(t *testing.T) {
 	require.NoError(t, err)
 	_, err = epoch.ProcessSlashings(s, params.BeaconConfig().ProportionalSlashingMultiplier)
 	require.ErrorContains(t, "addition overflows", err)
+}
+
+func TestProcessHistoricalDataUpdate(t *testing.T) {
+	tests := []struct {
+		name     string
+		st       func() state.BeaconState
+		verifier func(state.BeaconState)
+	}{
+		{
+			name: "no change",
+			st: func() state.BeaconState {
+				st, _ := util.DeterministicGenesisState(t, 1)
+				return st
+			},
+			verifier: func(st state.BeaconState) {
+				roots, err := st.HistoricalRoots()
+				require.NoError(t, err)
+				require.Equal(t, 0, len(roots))
+			},
+		},
+		{
+			name: "before capella can process and get historical root",
+			st: func() state.BeaconState {
+				st, _ := util.DeterministicGenesisState(t, 1)
+				st, err := transition.ProcessSlots(context.Background(), st, params.BeaconConfig().SlotsPerHistoricalRoot-1)
+				require.NoError(t, err)
+				return st
+			},
+			verifier: func(st state.BeaconState) {
+				roots, err := st.HistoricalRoots()
+				require.NoError(t, err)
+				require.Equal(t, 1, len(roots))
+
+				b := &ethpb.HistoricalBatch{
+					BlockRoots: st.BlockRoots(),
+					StateRoots: st.StateRoots(),
+				}
+				r, err := b.HashTreeRoot()
+				require.NoError(t, err)
+				require.DeepEqual(t, r[:], roots[0])
+
+				_, err = st.HistoricalSummaries()
+				require.ErrorContains(t, "HistoricalSummaries is not supported for phase0", err)
+			},
+		},
+		{
+			name: "after capella can process and get historical summary",
+			st: func() state.BeaconState {
+				st, _ := util.DeterministicGenesisStateCapella(t, 1)
+				st, err := transition.ProcessSlots(context.Background(), st, params.BeaconConfig().SlotsPerHistoricalRoot-1)
+				require.NoError(t, err)
+				return st
+			},
+			verifier: func(st state.BeaconState) {
+				summaries, err := st.HistoricalSummaries()
+				require.NoError(t, err)
+				require.Equal(t, 1, len(summaries))
+
+				br, err := stateutil.ArraysRoot(st.BlockRoots(), fieldparams.BlockRootsLength)
+				require.NoError(t, err)
+				sr, err := stateutil.ArraysRoot(st.StateRoots(), fieldparams.StateRootsLength)
+				require.NoError(t, err)
+				b := &ethpb.HistoricalSummary{
+					BlockSummaryRoot: br[:],
+					StateSummaryRoot: sr[:],
+				}
+				require.DeepEqual(t, b, summaries[0])
+				hrs, err := st.HistoricalRoots()
+				require.NoError(t, err)
+				require.DeepEqual(t, hrs, [][]byte{})
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := epoch.ProcessHistoricalDataUpdate(tt.st())
+			require.NoError(t, err)
+			tt.verifier(got)
+		})
+	}
 }

@@ -8,9 +8,9 @@ import (
 	"strings"
 
 	"github.com/ethereum/go-ethereum/common/hexutil"
-	"github.com/prysmaticlabs/prysm/v3/config/params"
-	"github.com/prysmaticlabs/prysm/v3/network/forks"
-	ethpb "github.com/prysmaticlabs/prysm/v3/proto/eth/v1"
+	"github.com/prysmaticlabs/prysm/v4/config/params"
+	"github.com/prysmaticlabs/prysm/v4/network/forks"
+	ethpb "github.com/prysmaticlabs/prysm/v4/proto/eth/v1"
 	"go.opencensus.io/trace"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -65,19 +65,6 @@ func (_ *Server) GetSpec(ctx context.Context, _ *emptypb.Empty) (*ethpb.SpecResp
 		return nil, status.Errorf(codes.Internal, "Failed to prepare spec data: %v", err)
 	}
 	return &ethpb.SpecResponse{Data: data}, nil
-}
-
-// GetDepositContract retrieves deposit contract address and genesis fork version.
-func (_ *Server) GetDepositContract(ctx context.Context, _ *emptypb.Empty) (*ethpb.DepositContractResponse, error) {
-	ctx, span := trace.StartSpan(ctx, "beaconv1.GetDepositContract")
-	defer span.End()
-
-	return &ethpb.DepositContractResponse{
-		Data: &ethpb.DepositContract{
-			ChainId: params.BeaconConfig().DepositChainID,
-			Address: params.BeaconConfig().DepositContractAddress,
-		},
-	}, nil
 }
 
 func prepareConfigSpec() (map[string]string, error) {

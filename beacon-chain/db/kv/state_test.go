@@ -7,17 +7,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/prysmaticlabs/prysm/v3/beacon-chain/state"
-	"github.com/prysmaticlabs/prysm/v3/config/features"
-	"github.com/prysmaticlabs/prysm/v3/config/params"
-	"github.com/prysmaticlabs/prysm/v3/consensus-types/blocks"
-	"github.com/prysmaticlabs/prysm/v3/consensus-types/interfaces"
-	types "github.com/prysmaticlabs/prysm/v3/consensus-types/primitives"
-	"github.com/prysmaticlabs/prysm/v3/encoding/bytesutil"
-	ethpb "github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1"
-	"github.com/prysmaticlabs/prysm/v3/testing/assert"
-	"github.com/prysmaticlabs/prysm/v3/testing/require"
-	"github.com/prysmaticlabs/prysm/v3/testing/util"
+	"github.com/prysmaticlabs/prysm/v4/beacon-chain/state"
+	"github.com/prysmaticlabs/prysm/v4/config/features"
+	"github.com/prysmaticlabs/prysm/v4/config/params"
+	"github.com/prysmaticlabs/prysm/v4/consensus-types/blocks"
+	"github.com/prysmaticlabs/prysm/v4/consensus-types/interfaces"
+	"github.com/prysmaticlabs/prysm/v4/consensus-types/primitives"
+	"github.com/prysmaticlabs/prysm/v4/encoding/bytesutil"
+	ethpb "github.com/prysmaticlabs/prysm/v4/proto/prysm/v1alpha1"
+	"github.com/prysmaticlabs/prysm/v4/testing/assert"
+	"github.com/prysmaticlabs/prysm/v4/testing/require"
+	"github.com/prysmaticlabs/prysm/v4/testing/util"
 	bolt "go.etcd.io/bbolt"
 )
 
@@ -368,12 +368,12 @@ func TestStore_StatesBatchDelete(t *testing.T) {
 	db := setupDB(t)
 	ctx := context.Background()
 	numBlocks := 100
-	totalBlocks := make([]interfaces.SignedBeaconBlock, numBlocks)
+	totalBlocks := make([]interfaces.ReadOnlySignedBeaconBlock, numBlocks)
 	blockRoots := make([][32]byte, 0)
 	evenBlockRoots := make([][32]byte, 0)
 	for i := 0; i < len(totalBlocks); i++ {
 		b := util.NewBeaconBlock()
-		b.Block.Slot = types.Slot(i)
+		b.Block.Slot = primitives.Slot(i)
 		var err error
 		totalBlocks[i], err = blocks.NewSignedBeaconBlock(b)
 		require.NoError(t, err)
@@ -381,7 +381,7 @@ func TestStore_StatesBatchDelete(t *testing.T) {
 		require.NoError(t, err)
 		st, err := util.NewBeaconState()
 		require.NoError(t, err)
-		require.NoError(t, st.SetSlot(types.Slot(i)))
+		require.NoError(t, st.SetSlot(primitives.Slot(i)))
 		require.NoError(t, db.SaveState(context.Background(), st, r))
 		blockRoots = append(blockRoots, r)
 		if i%2 == 0 {
@@ -398,7 +398,7 @@ func TestStore_StatesBatchDelete(t *testing.T) {
 		if s == nil {
 			continue
 		}
-		assert.Equal(t, types.Slot(1), s.Slot()%2, "State with slot %d should have been deleted", s.Slot())
+		assert.Equal(t, primitives.Slot(1), s.Slot()%2, "State with slot %d should have been deleted", s.Slot())
 	}
 }
 
@@ -566,9 +566,9 @@ func TestStore_CleanUpDirtyStates_AboveThreshold(t *testing.T) {
 	require.NoError(t, db.SaveState(context.Background(), genesisState, genesisRoot))
 
 	bRoots := make([][32]byte, 0)
-	slotsPerArchivedPoint := types.Slot(128)
+	slotsPerArchivedPoint := primitives.Slot(128)
 	prevRoot := genesisRoot
-	for i := types.Slot(1); i <= slotsPerArchivedPoint; i++ {
+	for i := primitives.Slot(1); i <= slotsPerArchivedPoint; i++ {
 		b := util.NewBeaconBlock()
 		b.Block.Slot = i
 		b.Block.ParentRoot = prevRoot[:]
@@ -588,12 +588,12 @@ func TestStore_CleanUpDirtyStates_AboveThreshold(t *testing.T) {
 
 	require.NoError(t, db.SaveFinalizedCheckpoint(context.Background(), &ethpb.Checkpoint{
 		Root:  bRoots[len(bRoots)-1][:],
-		Epoch: types.Epoch(slotsPerArchivedPoint / params.BeaconConfig().SlotsPerEpoch),
+		Epoch: primitives.Epoch(slotsPerArchivedPoint / params.BeaconConfig().SlotsPerEpoch),
 	}))
 	require.NoError(t, db.CleanUpDirtyStates(context.Background(), slotsPerArchivedPoint))
 
 	for i, root := range bRoots {
-		if types.Slot(i) >= slotsPerArchivedPoint.SubSlot(slotsPerArchivedPoint.Div(3)) {
+		if primitives.Slot(i) >= slotsPerArchivedPoint.SubSlot(slotsPerArchivedPoint.Div(3)) {
 			require.Equal(t, true, db.HasState(context.Background(), root))
 		} else {
 			require.Equal(t, false, db.HasState(context.Background(), root))
@@ -610,7 +610,7 @@ func TestStore_CleanUpDirtyStates_Finalized(t *testing.T) {
 	require.NoError(t, db.SaveGenesisBlockRoot(context.Background(), genesisRoot))
 	require.NoError(t, db.SaveState(context.Background(), genesisState, genesisRoot))
 
-	for i := types.Slot(1); i <= params.BeaconConfig().SlotsPerEpoch; i++ {
+	for i := primitives.Slot(1); i <= params.BeaconConfig().SlotsPerEpoch; i++ {
 		b := util.NewBeaconBlock()
 		b.Block.Slot = i
 		r, err := b.Block.HashTreeRoot()
@@ -640,7 +640,7 @@ func TestStore_CleanUpDirtyStates_DontDeleteNonFinalized(t *testing.T) {
 	require.NoError(t, db.SaveState(context.Background(), genesisState, genesisRoot))
 
 	var unfinalizedRoots [][32]byte
-	for i := types.Slot(1); i <= params.BeaconConfig().SlotsPerEpoch; i++ {
+	for i := primitives.Slot(1); i <= params.BeaconConfig().SlotsPerEpoch; i++ {
 		b := util.NewBeaconBlock()
 		b.Block.Slot = i
 		r, err := b.Block.HashTreeRoot()
@@ -716,10 +716,10 @@ func validators(limit int) []*ethpb.Validator {
 			WithdrawalCredentials:      bytesutil.ToBytes(rand.Uint64(), 32),
 			EffectiveBalance:           rand.Uint64(),
 			Slashed:                    i%2 != 0,
-			ActivationEligibilityEpoch: types.Epoch(rand.Uint64()),
-			ActivationEpoch:            types.Epoch(rand.Uint64()),
-			ExitEpoch:                  types.Epoch(rand.Uint64()),
-			WithdrawableEpoch:          types.Epoch(rand.Uint64()),
+			ActivationEligibilityEpoch: primitives.Epoch(rand.Uint64()),
+			ActivationEpoch:            primitives.Epoch(rand.Uint64()),
+			ExitEpoch:                  primitives.Epoch(rand.Uint64()),
+			WithdrawableEpoch:          primitives.Epoch(rand.Uint64()),
 		}
 		vals = append(vals, val)
 	}
@@ -898,6 +898,100 @@ func TestBellatrixState_CanDelete(t *testing.T) {
 	savedS, err := db.State(context.Background(), r)
 	require.NoError(t, err)
 	require.Equal(t, state.ReadOnlyBeaconState(nil), savedS, "Unsaved state should've been nil")
+}
+
+func TestDenebState_CanSaveRetrieve(t *testing.T) {
+	db := setupDB(t)
+
+	r := [32]byte{'A'}
+
+	require.Equal(t, false, db.HasState(context.Background(), r))
+
+	st, _ := util.DeterministicGenesisStateDeneb(t, 1)
+	require.NoError(t, st.SetSlot(100))
+
+	require.NoError(t, db.SaveState(context.Background(), st, r))
+	require.Equal(t, true, db.HasState(context.Background(), r))
+
+	savedS, err := db.State(context.Background(), r)
+	require.NoError(t, err)
+
+	require.DeepSSZEqual(t, st.ToProtoUnsafe(), savedS.ToProtoUnsafe())
+
+	savedS, err = db.State(context.Background(), [32]byte{'B'})
+	require.NoError(t, err)
+	require.Equal(t, state.ReadOnlyBeaconState(nil), savedS, "Unsaved state should've been nil")
+}
+
+func TestDenebState_CanDelete(t *testing.T) {
+	db := setupDB(t)
+
+	r := [32]byte{'A'}
+
+	require.Equal(t, false, db.HasState(context.Background(), r))
+
+	st, _ := util.DeterministicGenesisStateDeneb(t, 1)
+	require.NoError(t, st.SetSlot(100))
+
+	require.NoError(t, db.SaveState(context.Background(), st, r))
+	require.Equal(t, true, db.HasState(context.Background(), r))
+
+	require.NoError(t, db.DeleteState(context.Background(), r))
+	savedS, err := db.State(context.Background(), r)
+	require.NoError(t, err)
+	require.Equal(t, state.ReadOnlyBeaconState(nil), savedS, "Unsaved state should've been nil")
+}
+
+func TestStateDeneb_CanSaveRetrieveValidatorEntries(t *testing.T) {
+	db := setupDB(t)
+
+	// enable historical state representation flag to test this
+	resetCfg := features.InitWithReset(&features.Flags{
+		EnableHistoricalSpaceRepresentation: true,
+	})
+	defer resetCfg()
+
+	r := [32]byte{'A'}
+
+	require.Equal(t, false, db.HasState(context.Background(), r))
+
+	stateValidators := validators(10)
+	st, _ := util.DeterministicGenesisStateDeneb(t, 20)
+	require.NoError(t, st.SetSlot(100))
+	require.NoError(t, st.SetValidators(stateValidators))
+
+	ctx := context.Background()
+	require.NoError(t, db.SaveState(ctx, st, r))
+	assert.Equal(t, true, db.HasState(context.Background(), r))
+
+	savedS, err := db.State(context.Background(), r)
+	require.NoError(t, err)
+
+	require.DeepSSZEqual(t, st.Validators(), savedS.Validators(), "saved state with validators and retrieved state are not matching")
+
+	// check if the index of the second state is still present.
+	err = db.db.Update(func(tx *bolt.Tx) error {
+		idxBkt := tx.Bucket(blockRootValidatorHashesBucket)
+		data := idxBkt.Get(r[:])
+		require.NotEqual(t, 0, len(data))
+		return nil
+	})
+	require.NoError(t, err)
+
+	// check if all the validator entries are still intact in the validator entry bucket.
+	err = db.db.Update(func(tx *bolt.Tx) error {
+		valBkt := tx.Bucket(stateValidatorsBucket)
+		// if any of the original validator entry is not present, then fail the test.
+		for _, val := range stateValidators {
+			hash, hashErr := val.HashTreeRoot()
+			assert.NoError(t, hashErr)
+			data := valBkt.Get(hash[:])
+			require.NotNil(t, data)
+			require.NotEqual(t, 0, len(data))
+		}
+		return nil
+	})
+	require.NoError(t, err)
 }
 
 func BenchmarkState_CheckStateSaveTime_1(b *testing.B)  { checkStateSaveTime(b, 1) }

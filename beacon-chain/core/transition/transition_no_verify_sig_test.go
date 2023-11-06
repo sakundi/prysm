@@ -2,18 +2,20 @@ package transition_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
-	"github.com/prysmaticlabs/prysm/v3/beacon-chain/core/helpers"
-	"github.com/prysmaticlabs/prysm/v3/beacon-chain/core/time"
-	"github.com/prysmaticlabs/prysm/v3/beacon-chain/core/transition"
-	"github.com/prysmaticlabs/prysm/v3/config/params"
-	"github.com/prysmaticlabs/prysm/v3/consensus-types/blocks"
-	"github.com/prysmaticlabs/prysm/v3/encoding/bytesutil"
-	ethpb "github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1"
-	"github.com/prysmaticlabs/prysm/v3/testing/assert"
-	"github.com/prysmaticlabs/prysm/v3/testing/require"
-	"github.com/prysmaticlabs/prysm/v3/testing/util"
+	"github.com/prysmaticlabs/prysm/v4/beacon-chain/core/helpers"
+	"github.com/prysmaticlabs/prysm/v4/beacon-chain/core/time"
+	"github.com/prysmaticlabs/prysm/v4/beacon-chain/core/transition"
+	field_params "github.com/prysmaticlabs/prysm/v4/config/fieldparams"
+	"github.com/prysmaticlabs/prysm/v4/config/params"
+	"github.com/prysmaticlabs/prysm/v4/consensus-types/blocks"
+	"github.com/prysmaticlabs/prysm/v4/encoding/bytesutil"
+	ethpb "github.com/prysmaticlabs/prysm/v4/proto/prysm/v1alpha1"
+	"github.com/prysmaticlabs/prysm/v4/testing/assert"
+	"github.com/prysmaticlabs/prysm/v4/testing/require"
+	"github.com/prysmaticlabs/prysm/v4/testing/util"
 )
 
 func TestExecuteStateTransitionNoVerify_FullProcess(t *testing.T) {
@@ -151,6 +153,18 @@ func TestProcessBlockNoVerifyAnySigAltair_OK(t *testing.T) {
 	require.Equal(t, true, verified, "Could not verify signature set")
 }
 
+func TestProcessBlockNoVerify_SigSetContainsDescriptions(t *testing.T) {
+	beaconState, block, _, _, _ := createFullBlockWithOperations(t)
+	wsb, err := blocks.NewSignedBeaconBlock(block)
+	require.NoError(t, err)
+	set, _, err := transition.ProcessBlockNoVerifyAnySig(context.Background(), beaconState, wsb)
+	require.NoError(t, err)
+	assert.Equal(t, len(set.Signatures), len(set.Descriptions), "Signatures and descriptions do not match up")
+	assert.Equal(t, "block signature", set.Descriptions[0])
+	assert.Equal(t, "randao signature", set.Descriptions[1])
+	assert.Equal(t, "attestation signature", set.Descriptions[2])
+}
+
 func TestProcessOperationsNoVerifyAttsSigs_OK(t *testing.T) {
 	beaconState, block := createFullAltairBlockWithOperations(t)
 	wsb, err := blocks.NewSignedBeaconBlock(block)
@@ -163,6 +177,16 @@ func TestProcessOperationsNoVerifyAttsSigs_OK(t *testing.T) {
 
 func TestProcessOperationsNoVerifyAttsSigsBellatrix_OK(t *testing.T) {
 	beaconState, block := createFullBellatrixBlockWithOperations(t)
+	wsb, err := blocks.NewSignedBeaconBlock(block)
+	require.NoError(t, err)
+	beaconState, err = transition.ProcessSlots(context.Background(), beaconState, wsb.Block().Slot())
+	require.NoError(t, err)
+	_, err = transition.ProcessOperationsNoVerifyAttsSigs(context.Background(), beaconState, wsb)
+	require.NoError(t, err)
+}
+
+func TestProcessOperationsNoVerifyAttsSigsCapella_OK(t *testing.T) {
+	beaconState, block := createFullCapellaBlockWithOperations(t)
 	wsb, err := blocks.NewSignedBeaconBlock(block)
 	require.NoError(t, err)
 	beaconState, err = transition.ProcessSlots(context.Background(), beaconState, wsb.Block().Slot())
@@ -187,4 +211,16 @@ func TestProcessBlockDifferentVersion(t *testing.T) {
 	require.NoError(t, err)
 	_, _, err = transition.ProcessBlockNoVerifyAnySig(context.Background(), beaconState, wsb)
 	require.ErrorContains(t, "state and block are different version. 0 != 1", err)
+}
+
+func TestVerifyBlobCommitmentCount(t *testing.T) {
+	b := &ethpb.BeaconBlockDeneb{Body: &ethpb.BeaconBlockBodyDeneb{}}
+	rb, err := blocks.NewBeaconBlock(b)
+	require.NoError(t, err)
+	require.NoError(t, transition.VerifyBlobCommitmentCount(rb))
+
+	b = &ethpb.BeaconBlockDeneb{Body: &ethpb.BeaconBlockBodyDeneb{BlobKzgCommitments: make([][]byte, field_params.MaxBlobsPerBlock+1)}}
+	rb, err = blocks.NewBeaconBlock(b)
+	require.NoError(t, err)
+	require.ErrorContains(t, fmt.Sprintf("too many kzg commitments in block: %d", field_params.MaxBlobsPerBlock+1), transition.VerifyBlobCommitmentCount(rb))
 }

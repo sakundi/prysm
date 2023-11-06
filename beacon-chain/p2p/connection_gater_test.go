@@ -9,14 +9,14 @@ import (
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p/core/peer"
 	ma "github.com/multiformats/go-multiaddr"
-	"github.com/prysmaticlabs/prysm/v3/beacon-chain/p2p/peers"
-	"github.com/prysmaticlabs/prysm/v3/beacon-chain/p2p/peers/peerdata"
-	"github.com/prysmaticlabs/prysm/v3/beacon-chain/p2p/peers/scorers"
-	mockp2p "github.com/prysmaticlabs/prysm/v3/beacon-chain/p2p/testing"
-	leakybucket "github.com/prysmaticlabs/prysm/v3/container/leaky-bucket"
-	ethpb "github.com/prysmaticlabs/prysm/v3/proto/eth/v1"
-	"github.com/prysmaticlabs/prysm/v3/testing/assert"
-	"github.com/prysmaticlabs/prysm/v3/testing/require"
+	"github.com/prysmaticlabs/prysm/v4/beacon-chain/p2p/peers"
+	"github.com/prysmaticlabs/prysm/v4/beacon-chain/p2p/peers/peerdata"
+	"github.com/prysmaticlabs/prysm/v4/beacon-chain/p2p/peers/scorers"
+	mockp2p "github.com/prysmaticlabs/prysm/v4/beacon-chain/p2p/testing"
+	leakybucket "github.com/prysmaticlabs/prysm/v4/container/leaky-bucket"
+	ethpb "github.com/prysmaticlabs/prysm/v4/proto/eth/v1"
+	"github.com/prysmaticlabs/prysm/v4/testing/assert"
+	"github.com/prysmaticlabs/prysm/v4/testing/require"
 )
 
 func TestPeer_AtMaxLimit(t *testing.T) {
@@ -40,6 +40,7 @@ func TestPeer_AtMaxLimit(t *testing.T) {
 	s.cfg = &Config{MaxPeers: 0}
 	s.addrFilter, err = configureFilter(&Config{})
 	require.NoError(t, err)
+	s.started = true
 	h1, err := libp2p.New([]libp2p.Option{privKeyOption(pkey), libp2p.ListenAddrs(listen), libp2p.ConnectionGater(s)}...)
 	require.NoError(t, err)
 	s.host = h1
@@ -83,6 +84,7 @@ func TestService_InterceptBannedIP(t *testing.T) {
 	ip := "212.67.10.122"
 	multiAddress, err := ma.NewMultiaddr(fmt.Sprintf("/ip4/%s/tcp/%d", ip, 3000))
 	require.NoError(t, err)
+	s.started = true
 
 	for i := 0; i < ipBurst; i++ {
 		valid := s.validateDial(multiAddress)
@@ -93,6 +95,37 @@ func TestService_InterceptBannedIP(t *testing.T) {
 	valid := s.validateDial(multiAddress)
 	if valid {
 		t.Errorf("Expected multiaddress with ip %s to be rejected as it exceeds the burst limit", ip)
+	}
+}
+
+func TestService_RejectInboundConnectionBeforeStarted(t *testing.T) {
+	limit := 1
+	s := &Service{
+		ipLimiter: leakybucket.NewCollector(ipLimit, ipBurst, 1*time.Second, false),
+		peers: peers.NewStatus(context.Background(), &peers.StatusConfig{
+			PeerLimit:    limit,
+			ScorerParams: &scorers.Config{},
+		}),
+		host: mockp2p.NewTestP2P(t).BHost,
+		cfg:  &Config{MaxPeers: uint(limit)},
+	}
+	var err error
+	s.addrFilter, err = configureFilter(&Config{})
+	require.NoError(t, err)
+
+	ip := "212.67.10.122"
+	multiAddress, err := ma.NewMultiaddr(fmt.Sprintf("/ip4/%s/tcp/%d", ip, 3000))
+	require.NoError(t, err)
+
+	valid := s.InterceptAccept(&maEndpoints{raddr: multiAddress})
+	if valid {
+		t.Errorf("Expected multiaddress with ip %s to be rejected as p2p service is not ready", ip)
+	}
+
+	s.started = true
+	valid = s.InterceptAccept(&maEndpoints{raddr: multiAddress})
+	if !valid {
+		t.Errorf("Expected multiaddress with ip %s to be accepted after service is started", ip)
 	}
 }
 
@@ -113,6 +146,7 @@ func TestService_RejectInboundPeersBeyondLimit(t *testing.T) {
 	ip := "212.67.10.122"
 	multiAddress, err := ma.NewMultiaddr(fmt.Sprintf("/ip4/%s/tcp/%d", ip, 3000))
 	require.NoError(t, err)
+	s.started = true
 
 	valid := s.InterceptAccept(&maEndpoints{raddr: multiAddress})
 	if !valid {
@@ -157,6 +191,7 @@ func TestPeer_BelowMaxLimit(t *testing.T) {
 	h1, err := libp2p.New([]libp2p.Option{privKeyOption(pkey), libp2p.ListenAddrs(listen), libp2p.ConnectionGater(s)}...)
 	require.NoError(t, err)
 	s.host = h1
+	s.started = true
 	defer func() {
 		err := h1.Close()
 		require.NoError(t, err)
@@ -202,6 +237,7 @@ func TestPeerAllowList(t *testing.T) {
 	h1, err := libp2p.New([]libp2p.Option{privKeyOption(pkey), libp2p.ListenAddrs(listen), libp2p.ConnectionGater(s)}...)
 	require.NoError(t, err)
 	s.host = h1
+	s.started = true
 	defer func() {
 		err := h1.Close()
 		require.NoError(t, err)
@@ -248,6 +284,7 @@ func TestPeerDenyList(t *testing.T) {
 	h1, err := libp2p.New([]libp2p.Option{privKeyOption(pkey), libp2p.ListenAddrs(listen), libp2p.ConnectionGater(s)}...)
 	require.NoError(t, err)
 	s.host = h1
+	s.started = true
 	defer func() {
 		err := h1.Close()
 		require.NoError(t, err)

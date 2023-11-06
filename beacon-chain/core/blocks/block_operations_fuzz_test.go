@@ -5,14 +5,14 @@ import (
 	"testing"
 
 	fuzz "github.com/google/gofuzz"
-	v "github.com/prysmaticlabs/prysm/v3/beacon-chain/core/validators"
-	state_native "github.com/prysmaticlabs/prysm/v3/beacon-chain/state/state-native"
-	fieldparams "github.com/prysmaticlabs/prysm/v3/config/fieldparams"
-	"github.com/prysmaticlabs/prysm/v3/config/params"
-	"github.com/prysmaticlabs/prysm/v3/consensus-types/blocks"
-	types "github.com/prysmaticlabs/prysm/v3/consensus-types/primitives"
-	ethpb "github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1"
-	"github.com/prysmaticlabs/prysm/v3/testing/require"
+	v "github.com/prysmaticlabs/prysm/v4/beacon-chain/core/validators"
+	state_native "github.com/prysmaticlabs/prysm/v4/beacon-chain/state/state-native"
+	fieldparams "github.com/prysmaticlabs/prysm/v4/config/fieldparams"
+	"github.com/prysmaticlabs/prysm/v4/config/params"
+	"github.com/prysmaticlabs/prysm/v4/consensus-types/blocks"
+	"github.com/prysmaticlabs/prysm/v4/consensus-types/primitives"
+	ethpb "github.com/prysmaticlabs/prysm/v4/proto/prysm/v1alpha1"
+	"github.com/prysmaticlabs/prysm/v4/testing/require"
 )
 
 func TestFuzzProcessAttestationNoVerify_10000(t *testing.T) {
@@ -55,9 +55,9 @@ func TestFuzzProcessBlockHeader_10000(t *testing.T) {
 func TestFuzzverifyDepositDataSigningRoot_10000(_ *testing.T) {
 	fuzzer := fuzz.NewWithSeed(0)
 	var ba []byte
-	pubkey := [fieldparams.BLSPubkeyLength]byte{}
-	sig := [96]byte{}
-	domain := [4]byte{}
+	var pubkey [fieldparams.BLSPubkeyLength]byte
+	var sig [96]byte
+	var domain [4]byte
 	var p []byte
 	var s []byte
 	var d []byte
@@ -413,21 +413,30 @@ func TestFuzzProcessVoluntaryExitsNoVerify_10000(t *testing.T) {
 	}
 }
 
-func TestFuzzVerifyExit_10000(_ *testing.T) {
+func TestFuzzVerifyExit_10000(t *testing.T) {
 	fuzzer := fuzz.NewWithSeed(0)
 	ve := &ethpb.SignedVoluntaryExit{}
 	rawVal := &ethpb.Validator{}
 	fork := &ethpb.Fork{}
-	var slot types.Slot
+	var slot primitives.Slot
 
 	for i := 0; i < 10000; i++ {
 		fuzzer.Fuzz(ve)
 		fuzzer.Fuzz(rawVal)
 		fuzzer.Fuzz(fork)
 		fuzzer.Fuzz(&slot)
+
+		state := &ethpb.BeaconState{
+			Slot:                  slot,
+			Fork:                  fork,
+			GenesisValidatorsRoot: params.BeaconConfig().ZeroHash[:],
+		}
+		s, err := state_native.InitializeFromProtoUnsafePhase0(state)
+		require.NoError(t, err)
+
 		val, err := state_native.NewValidator(&ethpb.Validator{})
 		_ = err
-		err = VerifyExitAndSignature(val, slot, fork, ve, params.BeaconConfig().ZeroHash[:])
+		err = VerifyExitAndSignature(val, s, ve)
 		_ = err
 	}
 }

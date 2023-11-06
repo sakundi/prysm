@@ -9,12 +9,12 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/prysmaticlabs/prysm/v3/cmd"
-	"github.com/prysmaticlabs/prysm/v3/cmd/beacon-chain/flags"
-	"github.com/prysmaticlabs/prysm/v3/config/params"
-	types "github.com/prysmaticlabs/prysm/v3/consensus-types/primitives"
-	"github.com/prysmaticlabs/prysm/v3/testing/assert"
-	"github.com/prysmaticlabs/prysm/v3/testing/require"
+	"github.com/prysmaticlabs/prysm/v4/cmd"
+	"github.com/prysmaticlabs/prysm/v4/cmd/beacon-chain/flags"
+	"github.com/prysmaticlabs/prysm/v4/config/params"
+	"github.com/prysmaticlabs/prysm/v4/consensus-types/primitives"
+	"github.com/prysmaticlabs/prysm/v4/testing/assert"
+	"github.com/prysmaticlabs/prysm/v4/testing/require"
 	logTest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/urfave/cli/v2"
 )
@@ -50,7 +50,7 @@ func TestConfigureSlotsPerArchivedPoint(t *testing.T) {
 
 	require.NoError(t, configureSlotsPerArchivedPoint(cliCtx))
 
-	assert.Equal(t, types.Slot(100), params.BeaconConfig().SlotsPerArchivedPoint)
+	assert.Equal(t, primitives.Slot(100), params.BeaconConfig().SlotsPerArchivedPoint)
 }
 
 func TestConfigureProofOfWork(t *testing.T) {
@@ -110,7 +110,7 @@ func TestConfigureExecutionSetting(t *testing.T) {
 
 	assert.Equal(t, "100", params.BeaconConfig().TerminalTotalDifficulty)
 	assert.Equal(t, common.HexToHash("0xA"), params.BeaconConfig().TerminalBlockHash)
-	assert.Equal(t, types.Epoch(200), params.BeaconConfig().TerminalBlockHashActivationEpoch)
+	assert.Equal(t, primitives.Epoch(200), params.BeaconConfig().TerminalBlockHashActivationEpoch)
 
 }
 
@@ -143,29 +143,29 @@ func TestConfigureNetwork_ConfigFile(t *testing.T) {
 		"node2")), 0666))
 
 	require.NoError(t, set.Parse([]string{"test-command", "--" + cmd.ConfigFileFlag.Name, "flags_test.yaml"}))
+	comFlags := cmd.WrapFlags([]cli.Flag{
+		&cli.StringFlag{
+			Name: cmd.ConfigFileFlag.Name,
+		},
+		&cli.StringSliceFlag{
+			Name: cmd.BootstrapNode.Name,
+		},
+	})
 	command := &cli.Command{
-		Name: "test-command",
-		Flags: cmd.WrapFlags([]cli.Flag{
-			&cli.StringFlag{
-				Name: cmd.ConfigFileFlag.Name,
-			},
-			&cli.StringSliceFlag{
-				Name: cmd.BootstrapNode.Name,
-			},
-		}),
+		Name:  "test-command",
+		Flags: comFlags,
 		Before: func(cliCtx *cli.Context) error {
-			return cmd.LoadFlagsFromConfig(cliCtx, cliCtx.Command.Flags)
+			return cmd.LoadFlagsFromConfig(cliCtx, comFlags)
 		},
 		Action: func(cliCtx *cli.Context) error {
-			//TODO: https://github.com/urfave/cli/issues/1197 right now does not set flag
-			require.Equal(t, false, cliCtx.IsSet(cmd.BootstrapNode.Name))
+			require.Equal(t, true, cliCtx.IsSet(cmd.BootstrapNode.Name))
 
 			require.Equal(t, strings.Join([]string{"node1", "node2"}, ","),
 				strings.Join(cliCtx.StringSlice(cmd.BootstrapNode.Name), ","))
 			return nil
 		},
 	}
-	require.NoError(t, command.Run(context))
+	require.NoError(t, command.Run(context, context.Args().Slice()...))
 	require.NoError(t, os.Remove("flags_test.yaml"))
 }
 
@@ -215,17 +215,6 @@ func TestConfigureInterop(t *testing.T) {
 				set := flag.NewFlagSet("test", 0)
 				set.Uint64(flags.InteropGenesisTimeFlag.Name, 0, "")
 				assert.NoError(t, set.Set(flags.InteropGenesisTimeFlag.Name, "200"))
-				return cli.NewContext(&app, set, nil)
-			},
-			"interop",
-		},
-		{
-			"genesis state set",
-			func() *cli.Context {
-				app := cli.App{}
-				set := flag.NewFlagSet("test", 0)
-				set.String(flags.InteropGenesisStateFlag.Name, "", "")
-				assert.NoError(t, set.Set(flags.InteropGenesisStateFlag.Name, "/path/"))
 				return cli.NewContext(&app, set, nil)
 			},
 			"interop",

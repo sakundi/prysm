@@ -3,9 +3,8 @@
 package flags
 
 import (
-	"strings"
-
-	"github.com/prysmaticlabs/prysm/v3/config/params"
+	"github.com/prysmaticlabs/prysm/v4/cmd"
+	"github.com/prysmaticlabs/prysm/v4/config/params"
 	"github.com/urfave/cli/v2"
 )
 
@@ -26,6 +25,12 @@ var (
 		Usage: "Number of total skip slot to fallback from using relay/builder to local execution engine for block construction in last epoch rolling window",
 		Value: 8,
 	}
+	// LocalBlockValueBoost sets a percentage boost for local block construction while using a custom builder.
+	LocalBlockValueBoost = &cli.Uint64Flag{
+		Name: "local-block-value-boost",
+		Usage: "A percentage boost for local block construction as a Uint64. This is used to prioritize local block construction over relay/builder block construction" +
+			"Boost is an additional percentage to multiple local block value. Use builder block if: builder_bid_value * 100 > local_block_value * (local-block-value-boost + 100)",
+	}
 	// ExecutionEngineEndpoint provides an HTTP access endpoint to connect to an execution client on the execution layer
 	ExecutionEngineEndpoint = &cli.StringFlag{
 		Name:  "execution-endpoint",
@@ -37,13 +42,6 @@ var (
 		Name: "execution-headers",
 		Usage: "A comma separated list of key value pairs to pass as HTTP headers for all execution " +
 			"client calls. Example: --execution-headers=key1=value1,key2=value2",
-	}
-	// Deprecated: HTTPWeb3ProviderFlag is a deprecated flag and is an alias for the ExecutionEngineEndpoint flag.
-	HTTPWeb3ProviderFlag = &cli.StringFlag{
-		Name:   "http-web3provider",
-		Usage:  "DEPRECATED: A mainchain web3 provider string http endpoint. Can contain auth header as well in the format --http-web3provider=\"https://goerli.infura.io/v3/xxxx,Basic xxx\" for project secret (base64 encoded) and --http-web3provider=\"https://goerli.infura.io/v3/xxxx,Bearer xxx\" for jwt use",
-		Value:  "http://localhost:8551",
-		Hidden: true,
 	}
 	// ExecutionJWTSecretFlag provides a path to a file containing a hex-encoded string representing a 32 byte secret
 	// used to authenticate with an execution node via HTTP. This is required if using an HTTP connection, otherwise all requests
@@ -95,7 +93,7 @@ var (
 	HTTPModules = &cli.StringFlag{
 		Name:  "http-modules",
 		Usage: "Comma-separated list of API module names. Possible values: `" + PrysmAPIModule + `,` + EthAPIModule + "`.",
-		Value: strings.Join([]string{PrysmAPIModule, EthAPIModule}, ","),
+		Value: PrysmAPIModule + `,` + EthAPIModule,
 	}
 	// DisableGRPCGateway for JSON-HTTP requests to the beacon node.
 	DisableGRPCGateway = &cli.BoolFlag{
@@ -140,13 +138,11 @@ var (
 		Usage: "The percentage of freshly allocated data to live data on which the gc will be run again.",
 		Value: 100,
 	}
-	// SafeSlotsToImportOptimistically specifies the number of slots that a
-	// node should wait before being able to optimistically sync blocks
-	// across the merge boundary
+	// SafeSlotsToImportOptimistically is deprecated. It should be removed in the next major release.
 	SafeSlotsToImportOptimistically = &cli.IntFlag{
-		Name:  "safe-slots-to-import-optimistically",
-		Usage: "The number of slots to wait before optimistically syncing a block without enabled execution.",
-		Value: 128,
+		Name:   "safe-slots-to-import-optimistically",
+		Usage:  "DEPRECATED. DO NOT USE",
+		Hidden: true,
 	}
 	// SlotsPerArchivedPoint specifies the number of slots between the archived points, to save beacon state in the cold
 	// section of beaconDB.
@@ -165,6 +161,18 @@ var (
 	BlockBatchLimitBurstFactor = &cli.IntFlag{
 		Name:  "block-batch-limit-burst-factor",
 		Usage: "The factor by which block batch limit may increase on burst.",
+		Value: 2,
+	}
+	// BlobBatchLimit specifies the requested blob batch size.
+	BlobBatchLimit = &cli.IntFlag{
+		Name:  "blob-batch-limit",
+		Usage: "The amount of blobs the local peer is bounded to request and respond to in a batch.",
+		Value: 8,
+	}
+	// BlobBatchLimitBurstFactor specifies the factor by which blob batch size may increase.
+	BlobBatchLimitBurstFactor = &cli.IntFlag{
+		Name:  "blob-batch-limit-burst-factor",
+		Usage: "The factor by which blob batch limit may increase on burst.",
 		Value: 2,
 	}
 	// EnableDebugRPCEndpoints as /v1/beacon/state.
@@ -205,6 +213,7 @@ var (
 		Usage: "Sets the maximum number of headers that a deposit log query can fetch.",
 		Value: uint64(1000),
 	}
+
 	// WeakSubjectivityCheckpoint defines the weak subjectivity checkpoint the node must sync through to defend against long range attacks.
 	WeakSubjectivityCheckpoint = &cli.StringFlag{
 		Name: "weak-subjectivity-checkpoint",
@@ -245,5 +254,16 @@ var (
 		Usage: "Sets the block hash epoch to manual overrides the default TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH value. " +
 			"WARNING: This flag should be used only if you have a clear understanding that community has decided to override the terminal block hash activation epoch. " +
 			"Incorrect usage will result in your node experience consensus failure.",
+	}
+	// SlasherDirFlag defines a path on disk where the slasher database is stored.
+	SlasherDirFlag = &cli.StringFlag{
+		Name:  "slasher-datadir",
+		Usage: "Directory for the slasher database",
+		Value: cmd.DefaultDataDir(),
+	}
+	BlobRetentionEpoch = &cli.Uint64Flag{
+		Name:  "extend-blob-retention-epoch",
+		Usage: "Extend blob retention epoch period to beyond default 4096 epochs (~18 days). The node will error at start if input value is less than 4096 epochs.",
+		Value: uint64(params.BeaconNetworkConfig().MinEpochsForBlobsSidecarsRequest),
 	}
 )

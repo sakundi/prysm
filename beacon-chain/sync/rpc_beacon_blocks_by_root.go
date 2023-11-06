@@ -6,10 +6,13 @@ import (
 	libp2pcore "github.com/libp2p/go-libp2p/core"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/pkg/errors"
-	"github.com/prysmaticlabs/prysm/v3/beacon-chain/p2p/types"
-	"github.com/prysmaticlabs/prysm/v3/config/params"
-	"github.com/prysmaticlabs/prysm/v3/consensus-types/blocks"
-	"github.com/prysmaticlabs/prysm/v3/consensus-types/interfaces"
+	"github.com/prysmaticlabs/prysm/v4/beacon-chain/execution"
+	"github.com/prysmaticlabs/prysm/v4/beacon-chain/p2p/types"
+	"github.com/prysmaticlabs/prysm/v4/config/params"
+	"github.com/prysmaticlabs/prysm/v4/consensus-types/blocks"
+	"github.com/prysmaticlabs/prysm/v4/consensus-types/interfaces"
+	eth "github.com/prysmaticlabs/prysm/v4/proto/prysm/v1alpha1"
+	"github.com/prysmaticlabs/prysm/v4/runtime/version"
 )
 
 // sendRecentBeaconBlocksRequest sends a recent beacon blocks request to a peer to get
@@ -18,18 +21,33 @@ func (s *Service) sendRecentBeaconBlocksRequest(ctx context.Context, blockRoots 
 	ctx, cancel := context.WithTimeout(ctx, respTimeout)
 	defer cancel()
 
-	_, err := SendBeaconBlocksByRootRequest(ctx, s.cfg.chain, s.cfg.p2p, id, blockRoots, func(blk interfaces.SignedBeaconBlock) error {
+	blks, err := SendBeaconBlocksByRootRequest(ctx, s.cfg.clock, s.cfg.p2p, id, blockRoots, func(blk interfaces.ReadOnlySignedBeaconBlock) error {
 		blkRoot, err := blk.Block().HashTreeRoot()
 		if err != nil {
 			return err
 		}
 		s.pendingQueueLock.Lock()
+		defer s.pendingQueueLock.Unlock()
 		if err := s.insertBlockToPendingQueue(blk.Block().Slot(), blk, blkRoot); err != nil {
 			return err
 		}
-		s.pendingQueueLock.Unlock()
 		return nil
 	})
+
+	for _, blk := range blks {
+		// Skip blocks before deneb because they have no blob.
+		if blk.Version() < version.Deneb {
+			continue
+		}
+		blkRoot, err := blk.Block().HashTreeRoot()
+		if err != nil {
+			return err
+		}
+		if err := s.requestPendingBlobs(ctx, blk.Block(), blkRoot[:], id); err != nil {
+			return err
+		}
+	}
+
 	return err
 }
 
@@ -75,9 +93,13 @@ func (s *Service) beaconBlocksRootRPCHandler(ctx context.Context, msg interface{
 		}
 
 		if blk.Block().IsBlinded() {
-			blk, err = s.cfg.executionPayloadReconstructor.ReconstructFullBellatrixBlock(ctx, blk)
+			blk, err = s.cfg.executionPayloadReconstructor.ReconstructFullBlock(ctx, blk)
 			if err != nil {
-				log.WithError(err).Error("Could not get reconstruct full bellatrix block from blinded body")
+				if errors.Is(err, execution.EmptyBlockHash) {
+					log.WithError(err).Warn("Could not reconstruct block from header with syncing execution client. Waiting to complete syncing")
+				} else {
+					log.WithError(err).Error("Could not get reconstruct full block from blinded body")
+				}
 				s.writeErrorResponseToStream(responseCodeServerError, types.ErrGeneric.Error(), stream)
 				return err
 			}
@@ -90,4 +112,43 @@ func (s *Service) beaconBlocksRootRPCHandler(ctx context.Context, msg interface{
 
 	closeStream(stream, log)
 	return nil
+}
+
+func (s *Service) requestPendingBlobs(ctx context.Context, b interfaces.ReadOnlyBeaconBlock, br []byte, id peer.ID) error {
+	// Block before deneb has no blob.
+	if b.Version() < version.Deneb {
+		return nil
+	}
+	c, err := b.Body().BlobKzgCommitments()
+	if err != nil {
+		return err
+	}
+	// No op if the block has no blob commitments.
+	if len(c) == 0 {
+		return nil
+	}
+
+	// Build request for blob sidecars.
+	blobId := make([]*eth.BlobIdentifier, len(c))
+	for i := range c {
+		blobId[i] = &eth.BlobIdentifier{Index: uint64(i), BlockRoot: br}
+	}
+
+	ctxByte, err := ContextByteVersionsForValRoot(s.cfg.chain.GenesisValidatorsRoot())
+	if err != nil {
+		return err
+	}
+	req := types.BlobSidecarsByRootReq(blobId)
+
+	// Send request to a random peer.
+	blobSidecars, err := SendBlobSidecarByRoot(ctx, s.cfg.clock, s.cfg.p2p, id, ctxByte, &req)
+	if err != nil {
+		return err
+	}
+
+	for _, sidecar := range blobSidecars {
+		log.WithFields(blobFields(sidecar)).Debug("Received blob sidecar gossip RPC")
+	}
+
+	return s.cfg.beaconDB.SaveBlobSidecar(ctx, blobSidecars)
 }

@@ -1,11 +1,11 @@
 package state_native
 
 import (
-	"github.com/prysmaticlabs/prysm/v3/consensus-types/blocks"
-	"github.com/prysmaticlabs/prysm/v3/consensus-types/interfaces"
-	enginev1 "github.com/prysmaticlabs/prysm/v3/proto/engine/v1"
-	ethpb "github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1"
-	"github.com/prysmaticlabs/prysm/v3/runtime/version"
+	"github.com/prysmaticlabs/prysm/v4/consensus-types/blocks"
+	"github.com/prysmaticlabs/prysm/v4/consensus-types/interfaces"
+	enginev1 "github.com/prysmaticlabs/prysm/v4/proto/engine/v1"
+	ethpb "github.com/prysmaticlabs/prysm/v4/proto/prysm/v1alpha1"
+	"github.com/prysmaticlabs/prysm/v4/runtime/version"
 )
 
 // LatestExecutionPayloadHeader of the beacon state.
@@ -14,17 +14,18 @@ func (b *BeaconState) LatestExecutionPayloadHeader() (interfaces.ExecutionData, 
 		return nil, errNotSupported("LatestExecutionPayloadHeader", b.version)
 	}
 
-	if b.latestExecutionPayloadHeader == nil {
-		return nil, nil
-	}
-
 	b.lock.RLock()
 	defer b.lock.RUnlock()
 
 	if b.version == version.Bellatrix {
 		return blocks.WrappedExecutionPayloadHeader(b.latestExecutionPayloadHeaderVal())
 	}
-	return blocks.WrappedExecutionPayloadHeaderCapella(b.latestExecutionPayloadHeaderCapellaVal())
+
+	if b.version == version.Capella {
+		return blocks.WrappedExecutionPayloadHeaderCapella(b.latestExecutionPayloadHeaderCapellaVal(), 0)
+	}
+
+	return blocks.WrappedExecutionPayloadHeaderDeneb(b.latestExecutionPayloadHeaderDenebVal(), 0)
 }
 
 // latestExecutionPayloadHeaderVal of the beacon state.
@@ -37,4 +38,8 @@ func (b *BeaconState) latestExecutionPayloadHeaderVal() *enginev1.ExecutionPaylo
 // This assumes that a lock is already held on BeaconState.
 func (b *BeaconState) latestExecutionPayloadHeaderCapellaVal() *enginev1.ExecutionPayloadHeaderCapella {
 	return ethpb.CopyExecutionPayloadHeaderCapella(b.latestExecutionPayloadHeaderCapella)
+}
+
+func (b *BeaconState) latestExecutionPayloadHeaderDenebVal() *enginev1.ExecutionPayloadHeaderDeneb {
+	return ethpb.CopyExecutionPayloadHeaderDeneb(b.latestExecutionPayloadHeaderDeneb)
 }
