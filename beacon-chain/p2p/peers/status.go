@@ -45,6 +45,7 @@ import (
 	"github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1/metadata"
 	prysmTime "github.com/prysmaticlabs/prysm/v3/time"
 	"github.com/prysmaticlabs/prysm/v3/time/slots"
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -440,6 +441,9 @@ func (p *Status) InboundConnected() []peer.ID {
 	for pid, peerData := range p.store.Peers() {
 		if peerData.ConnState == PeerConnected && peerData.Direction == network.DirInbound {
 			peers = append(peers, pid)
+			log.WithFields(logrus.Fields{
+				"inboundPeer": peerData.Address,
+			}).Info("Tikuna info: InboundConnected")
 		}
 	}
 	return peers
@@ -453,6 +457,9 @@ func (p *Status) Outbound() []peer.ID {
 	for pid, peerData := range p.store.Peers() {
 		if peerData.Direction == network.DirOutbound {
 			peers = append(peers, pid)
+			log.WithFields(logrus.Fields{
+				"outboundPeer": peerData.Address,
+			}).Info("Tikuna info: OutboundConnected")
 		}
 	}
 	return peers

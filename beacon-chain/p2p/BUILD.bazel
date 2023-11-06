@@ -73,7 +73,7 @@ go_library(
         "//runtime/version:go_default_library",
         "//time:go_default_library",
         "//time/slots:go_default_library",
-        "@com_github_ethereum_go_ethereum//p2p/discover:go_default_library",
+        "@com_github_sakundi_go_ethereum//p2p/discover:go_default_library",
         "@com_github_ethereum_go_ethereum//p2p/enode:go_default_library",
         "@com_github_ethereum_go_ethereum//p2p/enr:go_default_library",
         "@com_github_kr_pretty//:go_default_library",

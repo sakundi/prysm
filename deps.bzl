@@ -814,6 +814,20 @@ def prysm_deps():
         version = "v0.1.0",
     )
     go_repository(
+        name = "com_github_sakundi_go_ethereum",
+        build_directives = [
+            "gazelle:resolve go github.com/karalabe/usb @prysm//third_party/usb:go_default_library",
+        ],
+        importpath = "github.com/sakundi/go-ethereum",
+        patch_args = ["-p1"],
+        patches = [
+            "//third_party:com_github_ethereum_go_ethereum_secp256k1.patch",
+        ],
+        sum = "h1:UJqXqzj2mwzt9WSd8CpLeBOiGyb40AJvyZSmrE9d1lk=",
+        version = "v1.10.46",
+    )
+
+    go_repository(
         name = "com_github_ethereum_go_ethereum",
         build_directives = [
             "gazelle:resolve go github.com/karalabe/usb @prysm//third_party/usb:go_default_library",
