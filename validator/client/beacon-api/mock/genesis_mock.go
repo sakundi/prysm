@@ -9,45 +9,43 @@ import (
 	reflect "reflect"
 
 	gomock "github.com/golang/mock/gomock"
-	apimiddleware "github.com/prysmaticlabs/prysm/v4/api/gateway/apimiddleware"
-	"github.com/prysmaticlabs/prysm/v4/beacon-chain/rpc/eth/beacon"
+	structs "github.com/prysmaticlabs/prysm/v5/api/server/structs"
 )
 
-// MockgenesisProvider is a mock of genesisProvider interface.
-type MockgenesisProvider struct {
+// MockGenesisProvider is a mock of GenesisProvider interface.
+type MockGenesisProvider struct {
 	ctrl     *gomock.Controller
-	recorder *MockgenesisProviderMockRecorder
+	recorder *MockGenesisProviderMockRecorder
 }
 
-// MockgenesisProviderMockRecorder is the mock recorder for MockgenesisProvider.
-type MockgenesisProviderMockRecorder struct {
-	mock *MockgenesisProvider
+// MockGenesisProviderMockRecorder is the mock recorder for MockGenesisProvider.
+type MockGenesisProviderMockRecorder struct {
+	mock *MockGenesisProvider
 }
 
-// NewMockgenesisProvider creates a new mock instance.
-func NewMockgenesisProvider(ctrl *gomock.Controller) *MockgenesisProvider {
-	mock := &MockgenesisProvider{ctrl: ctrl}
-	mock.recorder = &MockgenesisProviderMockRecorder{mock}
+// NewMockGenesisProvider creates a new mock instance.
+func NewMockGenesisProvider(ctrl *gomock.Controller) *MockGenesisProvider {
+	mock := &MockGenesisProvider{ctrl: ctrl}
+	mock.recorder = &MockGenesisProviderMockRecorder{mock}
 	return mock
 }
 
 // EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockgenesisProvider) EXPECT() *MockgenesisProviderMockRecorder {
+func (m *MockGenesisProvider) EXPECT() *MockGenesisProviderMockRecorder {
 	return m.recorder
 }
 
 // GetGenesis mocks base method.
-func (m *MockgenesisProvider) GetGenesis(ctx context.Context) (*beacon.Genesis, *apimiddleware.DefaultErrorJson, error) {
+func (m *MockGenesisProvider) GetGenesis(ctx context.Context) (*structs.Genesis, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetGenesis", ctx)
-	ret0, _ := ret[0].(*beacon.Genesis)
-	ret1, _ := ret[1].(*apimiddleware.DefaultErrorJson)
-	ret2, _ := ret[2].(error)
-	return ret0, ret1, ret2
+	ret0, _ := ret[0].(*structs.Genesis)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // GetGenesis indicates an expected call of GetGenesis.
-func (mr *MockgenesisProviderMockRecorder) GetGenesis(ctx interface{}) *gomock.Call {
+func (mr *MockGenesisProviderMockRecorder) GetGenesis(ctx interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetGenesis", reflect.TypeOf((*MockgenesisProvider)(nil).GetGenesis), ctx)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetGenesis", reflect.TypeOf((*MockGenesisProvider)(nil).GetGenesis), ctx)
 }

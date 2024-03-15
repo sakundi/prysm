@@ -10,19 +10,19 @@ import (
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
-	"github.com/prysmaticlabs/prysm/v4/api/client/builder"
-	"github.com/prysmaticlabs/prysm/v4/beacon-chain/core/signing"
-	fieldparams "github.com/prysmaticlabs/prysm/v4/config/fieldparams"
-	"github.com/prysmaticlabs/prysm/v4/config/params"
-	"github.com/prysmaticlabs/prysm/v4/consensus-types/interfaces"
-	"github.com/prysmaticlabs/prysm/v4/consensus-types/primitives"
-	"github.com/prysmaticlabs/prysm/v4/encoding/bytesutil"
-	"github.com/prysmaticlabs/prysm/v4/encoding/ssz"
-	"github.com/prysmaticlabs/prysm/v4/monitoring/tracing"
-	"github.com/prysmaticlabs/prysm/v4/network/forks"
-	enginev1 "github.com/prysmaticlabs/prysm/v4/proto/engine/v1"
-	"github.com/prysmaticlabs/prysm/v4/runtime/version"
-	"github.com/prysmaticlabs/prysm/v4/time/slots"
+	"github.com/prysmaticlabs/prysm/v5/api/client/builder"
+	"github.com/prysmaticlabs/prysm/v5/beacon-chain/core/signing"
+	fieldparams "github.com/prysmaticlabs/prysm/v5/config/fieldparams"
+	"github.com/prysmaticlabs/prysm/v5/config/params"
+	"github.com/prysmaticlabs/prysm/v5/consensus-types/interfaces"
+	"github.com/prysmaticlabs/prysm/v5/consensus-types/primitives"
+	"github.com/prysmaticlabs/prysm/v5/encoding/bytesutil"
+	"github.com/prysmaticlabs/prysm/v5/encoding/ssz"
+	"github.com/prysmaticlabs/prysm/v5/math"
+	"github.com/prysmaticlabs/prysm/v5/monitoring/tracing"
+	"github.com/prysmaticlabs/prysm/v5/network/forks"
+	"github.com/prysmaticlabs/prysm/v5/runtime/version"
+	"github.com/prysmaticlabs/prysm/v5/time/slots"
 	"github.com/sirupsen/logrus"
 	"go.opencensus.io/trace"
 )
@@ -42,7 +42,7 @@ var emptyTransactionsRoot = [32]byte{127, 254, 36, 30, 166, 1, 135, 253, 176, 24
 const blockBuilderTimeout = 1 * time.Second
 
 // Sets the execution data for the block. Execution data can come from local EL client or remote builder depends on validator registration and circuit breaker conditions.
-func setExecutionData(ctx context.Context, blk interfaces.SignedBeaconBlock, localPayload, builderPayload interfaces.ExecutionData) error {
+func setExecutionData(ctx context.Context, blk interfaces.SignedBeaconBlock, localPayload, builderPayload interfaces.ExecutionData, builderKzgCommitments [][]byte, builderBoostFactor uint64) error {
 	_, span := trace.StartSpan(ctx, "ProposerServer.setExecutionData")
 	defer span.End()
 
@@ -57,7 +57,7 @@ func setExecutionData(ctx context.Context, blk interfaces.SignedBeaconBlock, loc
 
 	// Use local payload if builder payload is nil.
 	if builderPayload == nil {
-		return blk.SetExecution(localPayload)
+		return setLocalExecution(blk, localPayload)
 	}
 
 	switch {
@@ -70,28 +70,34 @@ func setExecutionData(ctx context.Context, blk interfaces.SignedBeaconBlock, loc
 		builderValueGwei, err := builderPayload.ValueInGwei()
 		if err != nil {
 			log.WithError(err).Warn("Proposer: failed to get builder payload value") // Default to local if can't get builder value.
-			return blk.SetExecution(localPayload)
+			return setLocalExecution(blk, localPayload)
 		}
 
 		withdrawalsMatched, err := matchingWithdrawalsRoot(localPayload, builderPayload)
 		if err != nil {
 			tracing.AnnotateError(span, err)
 			log.WithError(err).Warn("Proposer: failed to match withdrawals root")
-			return blk.SetExecution(localPayload)
+			return setLocalExecution(blk, localPayload)
 		}
 
 		// Use builder payload if the following in true:
-		// builder_bid_value * 100 > local_block_value * (local-block-value-boost + 100)
+		// builder_bid_value * builderBoostFactor(default 100) > local_block_value * (local-block-value-boost + 100)
 		boost := params.BeaconConfig().LocalBlockValueBoost
-		higherValueBuilder := builderValueGwei*100 > localValueGwei*(100+boost)
+		higherValueBuilder := builderValueGwei*builderBoostFactor > localValueGwei*(100+boost)
+		if boost > 0 && builderBoostFactor != defaultBuilderBoostFactor {
+			log.WithFields(logrus.Fields{
+				"localGweiValue":       localValueGwei,
+				"localBoostPercentage": boost,
+				"builderGweiValue":     builderValueGwei,
+				"builderBoostFactor":   builderBoostFactor,
+			}).Warn("Proposer: both local boost and builder boost are using non default values")
+		}
 
 		// If we can't get the builder value, just use local block.
 		if higherValueBuilder && withdrawalsMatched { // Builder value is higher and withdrawals match.
-			blk.SetBlinded(true)
-			if err := blk.SetExecution(builderPayload); err != nil {
+			if err := setBuilderExecution(blk, builderPayload, builderKzgCommitments); err != nil {
 				log.WithError(err).Warn("Proposer: failed to set builder payload")
-				blk.SetBlinded(false)
-				return blk.SetExecution(localPayload)
+				return setLocalExecution(blk, localPayload)
 			} else {
 				return nil
 			}
@@ -101,30 +107,30 @@ func setExecutionData(ctx context.Context, blk interfaces.SignedBeaconBlock, loc
 				"localGweiValue":       localValueGwei,
 				"localBoostPercentage": boost,
 				"builderGweiValue":     builderValueGwei,
+				"builderBoostFactor":   builderBoostFactor,
 			}).Warn("Proposer: using local execution payload because higher value")
 		}
 		span.AddAttributes(
 			trace.BoolAttribute("higherValueBuilder", higherValueBuilder),
-			trace.Int64Attribute("localGweiValue", int64(localValueGwei)),     // lint:ignore uintcast -- This is OK for tracing.
-			trace.Int64Attribute("localBoostPercentage", int64(boost)),        // lint:ignore uintcast -- This is OK for tracing.
-			trace.Int64Attribute("builderGweiValue", int64(builderValueGwei)), // lint:ignore uintcast -- This is OK for tracing.
+			trace.Int64Attribute("localGweiValue", int64(localValueGwei)),         // lint:ignore uintcast -- This is OK for tracing.
+			trace.Int64Attribute("localBoostPercentage", int64(boost)),            // lint:ignore uintcast -- This is OK for tracing.
+			trace.Int64Attribute("builderGweiValue", int64(builderValueGwei)),     // lint:ignore uintcast -- This is OK for tracing.
+			trace.Int64Attribute("builderBoostFactor", int64(builderBoostFactor)), // lint:ignore uintcast -- This is OK for tracing.
 		)
-		return blk.SetExecution(localPayload)
+		return setLocalExecution(blk, localPayload)
 	default: // Bellatrix case.
-		blk.SetBlinded(true)
-		if err := blk.SetExecution(builderPayload); err != nil {
+		if err := setBuilderExecution(blk, builderPayload, builderKzgCommitments); err != nil {
 			log.WithError(err).Warn("Proposer: failed to set builder payload")
-			blk.SetBlinded(false)
-			return blk.SetExecution(localPayload)
+			return setLocalExecution(blk, localPayload)
 		} else {
 			return nil
 		}
 	}
 }
 
-// This function retrieves the payload header given the slot number and the validator index.
+// This function retrieves the payload header and kzg commitments given the slot number and the validator index.
 // It's a no-op if the latest head block is not versioned bellatrix.
-func (vs *Server) getPayloadHeaderFromBuilder(ctx context.Context, slot primitives.Slot, idx primitives.ValidatorIndex) (interfaces.ExecutionData, *enginev1.BlindedBlobsBundle, error) {
+func (vs *Server) getPayloadHeaderFromBuilder(ctx context.Context, slot primitives.Slot, idx primitives.ValidatorIndex) (interfaces.ExecutionData, [][]byte, error) {
 	ctx, span := trace.StartSpan(ctx, "ProposerServer.getPayloadHeaderFromBuilder")
 	defer span.End()
 
@@ -209,25 +215,34 @@ func (vs *Server) getPayloadHeaderFromBuilder(ctx context.Context, slot primitiv
 		return nil, nil, errors.Wrap(err, "could not validate builder signature")
 	}
 
-	var bundle *enginev1.BlindedBlobsBundle
+	var kzgCommitments [][]byte
 	if bid.Version() >= version.Deneb {
-		bundle, err = bid.BlindedBlobsBundle()
+		kzgCommitments, err = bid.BlobKzgCommitments()
 		if err != nil {
-			return nil, nil, errors.Wrap(err, "could not get blinded blobs bundle")
+			return nil, nil, errors.Wrap(err, "could not get blob kzg commitments")
 		}
-		if bundle != nil {
-			log.WithField("blindBlobCount", len(bundle.BlobRoots))
+		if len(kzgCommitments) > fieldparams.MaxBlobsPerBlock {
+			return nil, nil, fmt.Errorf("builder returned too many kzg commitments: %d", len(kzgCommitments))
+		}
+		for _, c := range kzgCommitments {
+			if len(c) != fieldparams.BLSPubkeyLength {
+				return nil, nil, fmt.Errorf("builder returned invalid kzg commitment length: %d", len(c))
+			}
 		}
 	}
 
-	log.WithFields(logrus.Fields{
-		"value":              v.String(),
+	l := log.WithFields(logrus.Fields{
+		"gweiValue":          math.WeiToGwei(v),
 		"builderPubKey":      fmt.Sprintf("%#x", bid.Pubkey()),
 		"blockHash":          fmt.Sprintf("%#x", header.BlockHash()),
 		"slot":               slot,
 		"validator":          idx,
 		"sinceSlotStartTime": time.Since(t),
-	}).Info("Received header with bid")
+	})
+	if len(kzgCommitments) > 0 {
+		l = l.WithField("kzgCommitmentCount", len(kzgCommitments))
+	}
+	l.Info("Received header with bid")
 
 	span.AddAttributes(
 		trace.StringAttribute("value", v.String()),
@@ -235,7 +250,7 @@ func (vs *Server) getPayloadHeaderFromBuilder(ctx context.Context, slot primitiv
 		trace.StringAttribute("blockHash", fmt.Sprintf("%#x", header.BlockHash())),
 	)
 
-	return header, bundle, nil
+	return header, kzgCommitments, nil
 }
 
 // Validates builder signature and returns an error if the signature is invalid.
@@ -281,4 +296,54 @@ func matchingWithdrawalsRoot(local, builder interfaces.ExecutionData) (bool, err
 		return false, nil
 	}
 	return true, nil
+}
+
+// setLocalExecution sets the execution context for a local beacon block.
+// It delegates to setExecution for the actual work.
+func setLocalExecution(blk interfaces.SignedBeaconBlock, execution interfaces.ExecutionData) error {
+	var kzgCommitments [][]byte
+	fullBlobsBundle := bundleCache.get(blk.Block().Slot())
+	if fullBlobsBundle != nil {
+		kzgCommitments = fullBlobsBundle.KzgCommitments
+	}
+	return setExecution(blk, execution, false, kzgCommitments)
+}
+
+// setBuilderExecution sets the execution context for a builder's beacon block.
+// It delegates to setExecution for the actual work.
+func setBuilderExecution(blk interfaces.SignedBeaconBlock, execution interfaces.ExecutionData, builderKzgCommitments [][]byte) error {
+	return setExecution(blk, execution, true, builderKzgCommitments)
+}
+
+// setExecution sets the execution context for a beacon block. It also sets KZG commitments based on the block version.
+// The function is designed to be flexible and handle both local and builder executions.
+func setExecution(blk interfaces.SignedBeaconBlock, execution interfaces.ExecutionData, isBlinded bool, kzgCommitments [][]byte) error {
+	if execution == nil {
+		return errors.New("execution is nil")
+	}
+
+	// Set the execution data for the block
+	errMessage := "failed to set local execution"
+	if isBlinded {
+		errMessage = "failed to set builder execution"
+	}
+	if err := blk.SetExecution(execution); err != nil {
+		return errors.Wrap(err, errMessage)
+	}
+
+	// If the block version is below Deneb, no further actions are needed
+	if blk.Version() < version.Deneb {
+		return nil
+	}
+
+	// Set the KZG commitments for the block
+	errMessage = "failed to set local kzg commitments"
+	if isBlinded {
+		errMessage = "failed to set builder kzg commitments"
+	}
+	if err := blk.SetBlobKzgCommitments(kzgCommitments); err != nil {
+		return errors.Wrap(err, errMessage)
+	}
+
+	return nil
 }

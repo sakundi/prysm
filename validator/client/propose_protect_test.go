@@ -4,13 +4,13 @@ import (
 	"context"
 	"testing"
 
-	fieldparams "github.com/prysmaticlabs/prysm/v4/config/fieldparams"
-	"github.com/prysmaticlabs/prysm/v4/config/params"
-	"github.com/prysmaticlabs/prysm/v4/consensus-types/blocks"
-	"github.com/prysmaticlabs/prysm/v4/consensus-types/primitives"
-	ethpb "github.com/prysmaticlabs/prysm/v4/proto/prysm/v1alpha1"
-	"github.com/prysmaticlabs/prysm/v4/testing/require"
-	"github.com/prysmaticlabs/prysm/v4/testing/util"
+	fieldparams "github.com/prysmaticlabs/prysm/v5/config/fieldparams"
+	"github.com/prysmaticlabs/prysm/v5/config/params"
+	"github.com/prysmaticlabs/prysm/v5/consensus-types/blocks"
+	"github.com/prysmaticlabs/prysm/v5/consensus-types/primitives"
+	ethpb "github.com/prysmaticlabs/prysm/v5/proto/prysm/v1alpha1"
+	"github.com/prysmaticlabs/prysm/v5/testing/require"
+	"github.com/prysmaticlabs/prysm/v5/testing/util"
 )
 
 func Test_slashableProposalCheck_PreventsLowerThanMinProposal(t *testing.T) {
@@ -39,7 +39,7 @@ func Test_slashableProposalCheck_PreventsLowerThanMinProposal(t *testing.T) {
 	wsb, err := blocks.NewSignedBeaconBlock(blk)
 	require.NoError(t, err)
 	err = validator.slashableProposalCheck(context.Background(), pubKeyBytes, wsb, [32]byte{4})
-	require.ErrorContains(t, "could not sign block with slot <= lowest signed", err)
+	require.ErrorContains(t, "could not sign block with slot < lowest signed", err)
 
 	// We expect the same block with a slot equal to the lowest
 	// signed slot to pass validation if signing roots are equal.
@@ -61,7 +61,7 @@ func Test_slashableProposalCheck_PreventsLowerThanMinProposal(t *testing.T) {
 	wsb, err = blocks.NewSignedBeaconBlock(blk)
 	require.NoError(t, err)
 	err = validator.slashableProposalCheck(context.Background(), pubKeyBytes, wsb, [32]byte{4})
-	require.ErrorContains(t, failedBlockSignLocalErr, err)
+	require.ErrorContains(t, "could not sign block with slot == lowest signed", err)
 
 	// We expect the same block with a slot > than the lowest
 	// signed slot to pass validation.

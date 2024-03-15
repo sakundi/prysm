@@ -5,11 +5,11 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	fastssz "github.com/prysmaticlabs/fastssz"
-	"github.com/prysmaticlabs/prysm/v4/cmd"
-	"github.com/prysmaticlabs/prysm/v4/cmd/beacon-chain/flags"
-	"github.com/prysmaticlabs/prysm/v4/config/params"
-	"github.com/prysmaticlabs/prysm/v4/consensus-types/primitives"
-	tracing2 "github.com/prysmaticlabs/prysm/v4/monitoring/tracing"
+	"github.com/prysmaticlabs/prysm/v5/cmd"
+	"github.com/prysmaticlabs/prysm/v5/cmd/beacon-chain/flags"
+	"github.com/prysmaticlabs/prysm/v5/config/params"
+	"github.com/prysmaticlabs/prysm/v5/consensus-types/primitives"
+	tracing2 "github.com/prysmaticlabs/prysm/v5/monitoring/tracing"
 	"github.com/urfave/cli/v2"
 )
 
@@ -40,7 +40,7 @@ func configureHistoricalSlasher(cliCtx *cli.Context) error {
 			return err
 		}
 		cmdConfig := cmd.Get()
-		// Allow up to 4096 attestations at a time to be requested from the beacon nde.
+		// Allow up to 4096 attestations at a time to be requested from the beacon node.
 		cmdConfig.MaxRPCPageSize = int(params.BeaconConfig().SlotsPerEpoch.Mul(params.BeaconConfig().MaxAttestations)) // lint:ignore uintcast -- Page size should not exceed int64 with these constants.
 		cmd.Init(cmdConfig)
 		log.Warnf(

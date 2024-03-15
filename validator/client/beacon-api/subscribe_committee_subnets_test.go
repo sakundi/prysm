@@ -9,14 +9,13 @@ import (
 	"testing"
 
 	"github.com/golang/mock/gomock"
-	"github.com/prysmaticlabs/prysm/v4/beacon-chain/rpc/apimiddleware"
-	"github.com/prysmaticlabs/prysm/v4/beacon-chain/rpc/eth/validator"
-	"github.com/prysmaticlabs/prysm/v4/consensus-types/primitives"
-	ethpb "github.com/prysmaticlabs/prysm/v4/proto/prysm/v1alpha1"
-	"github.com/prysmaticlabs/prysm/v4/testing/assert"
-	"github.com/prysmaticlabs/prysm/v4/testing/require"
-	"github.com/prysmaticlabs/prysm/v4/time/slots"
-	"github.com/prysmaticlabs/prysm/v4/validator/client/beacon-api/mock"
+	"github.com/prysmaticlabs/prysm/v5/api/server/structs"
+	"github.com/prysmaticlabs/prysm/v5/consensus-types/primitives"
+	ethpb "github.com/prysmaticlabs/prysm/v5/proto/prysm/v1alpha1"
+	"github.com/prysmaticlabs/prysm/v5/testing/assert"
+	"github.com/prysmaticlabs/prysm/v5/testing/require"
+	"github.com/prysmaticlabs/prysm/v5/time/slots"
+	"github.com/prysmaticlabs/prysm/v5/validator/client/beacon-api/mock"
 )
 
 const subscribeCommitteeSubnetsTestEndpoint = "/eth/v1/validator/beacon_committee_subscriptions"
@@ -31,9 +30,9 @@ func TestSubscribeCommitteeSubnets_Valid(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	jsonCommitteeSubscriptions := make([]*apimiddleware.BeaconCommitteeSubscribeJson, len(subscribeSlots))
+	jsonCommitteeSubscriptions := make([]*structs.BeaconCommitteeSubscription, len(subscribeSlots))
 	for index := range jsonCommitteeSubscriptions {
-		jsonCommitteeSubscriptions[index] = &apimiddleware.BeaconCommitteeSubscribeJson{
+		jsonCommitteeSubscriptions[index] = &structs.BeaconCommitteeSubscription{
 			ValidatorIndex:   strconv.FormatUint(uint64(validatorIndices[index]), 10),
 			CommitteeIndex:   strconv.FormatUint(uint64(committeeIndices[index]), 10),
 			CommitteesAtSlot: strconv.FormatUint(committeesAtSlot[index], 10),
@@ -47,8 +46,8 @@ func TestSubscribeCommitteeSubnets_Valid(t *testing.T) {
 
 	ctx := context.Background()
 
-	jsonRestHandler := mock.NewMockjsonRestHandler(ctrl)
-	jsonRestHandler.EXPECT().PostRestJson(
+	jsonRestHandler := mock.NewMockJsonRestHandler(ctrl)
+	jsonRestHandler.EXPECT().Post(
 		ctx,
 		subscribeCommitteeSubnetsTestEndpoint,
 		nil,
@@ -56,12 +55,11 @@ func TestSubscribeCommitteeSubnets_Valid(t *testing.T) {
 		nil,
 	).Return(
 		nil,
-		nil,
 	).Times(1)
 
-	duties := make([]*validator.AttesterDuty, len(subscribeSlots))
+	duties := make([]*structs.AttesterDuty, len(subscribeSlots))
 	for index := range duties {
-		duties[index] = &validator.AttesterDuty{
+		duties[index] = &structs.AttesterDuty{
 			ValidatorIndex:   strconv.FormatUint(uint64(validatorIndices[index]), 10),
 			CommitteeIndex:   strconv.FormatUint(uint64(committeeIndices[index]), 10),
 			CommitteesAtSlot: strconv.FormatUint(committeesAtSlot[index], 10),
@@ -76,7 +74,7 @@ func TestSubscribeCommitteeSubnets_Valid(t *testing.T) {
 		slots.ToEpoch(subscribeSlots[0]),
 		validatorIndices,
 	).Return(
-		[]*validator.AttesterDuty{
+		[]*structs.AttesterDuty{
 			{
 				CommitteesAtSlot: strconv.FormatUint(committeesAtSlot[0], 10),
 				Slot:             strconv.FormatUint(uint64(subscribeSlots[0]), 10),
@@ -94,7 +92,7 @@ func TestSubscribeCommitteeSubnets_Valid(t *testing.T) {
 		slots.ToEpoch(subscribeSlots[2]),
 		validatorIndices,
 	).Return(
-		[]*validator.AttesterDuty{
+		[]*structs.AttesterDuty{
 			{
 				CommitteesAtSlot: strconv.FormatUint(committeesAtSlot[2], 10),
 				Slot:             strconv.FormatUint(uint64(subscribeSlots[2]), 10),
@@ -126,7 +124,7 @@ func TestSubscribeCommitteeSubnets_Error(t *testing.T) {
 		name                    string
 		subscribeRequest        *ethpb.CommitteeSubnetsSubscribeRequest
 		validatorIndices        []primitives.ValidatorIndex
-		attesterDuty            *validator.AttesterDuty
+		attesterDuty            *structs.AttesterDuty
 		dutiesError             error
 		expectGetDutiesQuery    bool
 		expectSubscribeRestCall bool
@@ -197,7 +195,7 @@ func TestSubscribeCommitteeSubnets_Error(t *testing.T) {
 				IsAggregator: []bool{false},
 			},
 			validatorIndices: []primitives.ValidatorIndex{3},
-			attesterDuty: &validator.AttesterDuty{
+			attesterDuty: &structs.AttesterDuty{
 				Slot:             "foo",
 				CommitteesAtSlot: "1",
 			},
@@ -212,7 +210,7 @@ func TestSubscribeCommitteeSubnets_Error(t *testing.T) {
 				IsAggregator: []bool{false},
 			},
 			validatorIndices: []primitives.ValidatorIndex{3},
-			attesterDuty: &validator.AttesterDuty{
+			attesterDuty: &structs.AttesterDuty{
 				Slot:             "1",
 				CommitteesAtSlot: "foo",
 			},
@@ -227,7 +225,7 @@ func TestSubscribeCommitteeSubnets_Error(t *testing.T) {
 				IsAggregator: []bool{false},
 			},
 			validatorIndices: []primitives.ValidatorIndex{3},
-			attesterDuty: &validator.AttesterDuty{
+			attesterDuty: &structs.AttesterDuty{
 				Slot:             "2",
 				CommitteesAtSlot: "3",
 			},
@@ -242,13 +240,13 @@ func TestSubscribeCommitteeSubnets_Error(t *testing.T) {
 				IsAggregator: []bool{false},
 			},
 			validatorIndices: []primitives.ValidatorIndex{3},
-			attesterDuty: &validator.AttesterDuty{
+			attesterDuty: &structs.AttesterDuty{
 				Slot:             "1",
 				CommitteesAtSlot: "2",
 			},
 			expectGetDutiesQuery:    true,
 			expectSubscribeRestCall: true,
-			expectedErrorMessage:    "failed to send POST data to REST endpoint: foo error",
+			expectedErrorMessage:    "foo error",
 		},
 	}
 
@@ -266,21 +264,20 @@ func TestSubscribeCommitteeSubnets_Error(t *testing.T) {
 					gomock.Any(),
 					gomock.Any(),
 				).Return(
-					[]*validator.AttesterDuty{testCase.attesterDuty},
+					[]*structs.AttesterDuty{testCase.attesterDuty},
 					testCase.dutiesError,
 				).Times(1)
 			}
 
-			jsonRestHandler := mock.NewMockjsonRestHandler(ctrl)
+			jsonRestHandler := mock.NewMockJsonRestHandler(ctrl)
 			if testCase.expectSubscribeRestCall {
-				jsonRestHandler.EXPECT().PostRestJson(
+				jsonRestHandler.EXPECT().Post(
 					ctx,
 					subscribeCommitteeSubnetsTestEndpoint,
 					gomock.Any(),
 					gomock.Any(),
 					gomock.Any(),
 				).Return(
-					nil,
 					errors.New("foo error"),
 				).Times(1)
 			}

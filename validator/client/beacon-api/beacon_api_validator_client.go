@@ -2,39 +2,51 @@ package beacon_api
 
 import (
 	"context"
-	"net/http"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/golang/protobuf/ptypes/empty"
 	"github.com/pkg/errors"
-	"github.com/prysmaticlabs/prysm/v4/consensus-types/primitives"
-	"github.com/prysmaticlabs/prysm/v4/encoding/bytesutil"
-	ethpb "github.com/prysmaticlabs/prysm/v4/proto/prysm/v1alpha1"
-	"github.com/prysmaticlabs/prysm/v4/validator/client/iface"
+	"github.com/prysmaticlabs/prysm/v5/consensus-types/primitives"
+	"github.com/prysmaticlabs/prysm/v5/encoding/bytesutil"
+	ethpb "github.com/prysmaticlabs/prysm/v5/proto/prysm/v1alpha1"
+	"github.com/prysmaticlabs/prysm/v5/validator/client/iface"
 )
 
-type beaconApiValidatorClient struct {
-	genesisProvider         genesisProvider
-	dutiesProvider          dutiesProvider
-	stateValidatorsProvider stateValidatorsProvider
-	jsonRestHandler         jsonRestHandler
-	beaconBlockConverter    beaconBlockConverter
+type ValidatorClientOpt func(*beaconApiValidatorClient)
+
+func WithEventHandler(h *EventHandler) ValidatorClientOpt {
+	return func(c *beaconApiValidatorClient) {
+		c.eventHandler = h
+	}
 }
 
-func NewBeaconApiValidatorClient(host string, timeout time.Duration) iface.ValidatorClient {
-	jsonRestHandler := beaconApiJsonRestHandler{
-		httpClient: http.Client{Timeout: timeout},
-		host:       host,
-	}
+type beaconApiValidatorClient struct {
+	genesisProvider         GenesisProvider
+	dutiesProvider          dutiesProvider
+	stateValidatorsProvider StateValidatorsProvider
+	jsonRestHandler         JsonRestHandler
+	eventHandler            *EventHandler
+	beaconBlockConverter    BeaconBlockConverter
+	prysmBeaconChainCLient  iface.PrysmBeaconChainClient
+}
 
-	return &beaconApiValidatorClient{
+func NewBeaconApiValidatorClient(jsonRestHandler JsonRestHandler, opts ...ValidatorClientOpt) iface.ValidatorClient {
+	c := &beaconApiValidatorClient{
 		genesisProvider:         beaconApiGenesisProvider{jsonRestHandler: jsonRestHandler},
 		dutiesProvider:          beaconApiDutiesProvider{jsonRestHandler: jsonRestHandler},
 		stateValidatorsProvider: beaconApiStateValidatorsProvider{jsonRestHandler: jsonRestHandler},
 		jsonRestHandler:         jsonRestHandler,
 		beaconBlockConverter:    beaconApiBeaconBlockConverter{},
+		prysmBeaconChainCLient: prysmBeaconChainClient{
+			nodeClient:      &beaconApiNodeClient{jsonRestHandler: jsonRestHandler},
+			jsonRestHandler: jsonRestHandler,
+		},
 	}
+	for _, o := range opts {
+		o(c)
+	}
+	return c
 }
 
 func (c *beaconApiValidatorClient) GetDuties(ctx context.Context, in *ethpb.DutiesRequest) (*ethpb.DutiesResponse, error) {
@@ -102,6 +114,10 @@ func (c *beaconApiValidatorClient) ProposeExit(ctx context.Context, in *ethpb.Si
 	return c.proposeExit(ctx, in)
 }
 
+func (c *beaconApiValidatorClient) StreamSlots(ctx context.Context, in *ethpb.StreamSlotsRequest) (ethpb.BeaconNodeValidator_StreamSlotsClient, error) {
+	return c.streamSlots(ctx, in, time.Second), nil
+}
+
 func (c *beaconApiValidatorClient) StreamBlocksAltair(ctx context.Context, in *ethpb.StreamBlocksRequest) (ethpb.BeaconNodeValidator_StreamBlocksAltairClient, error) {
 	return c.streamBlocks(ctx, in, time.Second), nil
 }
@@ -145,4 +161,21 @@ func (c *beaconApiValidatorClient) WaitForActivation(ctx context.Context, in *et
 // Deprecated: Do not use.
 func (c *beaconApiValidatorClient) WaitForChainStart(ctx context.Context, _ *empty.Empty) (*ethpb.ChainStartResponse, error) {
 	return c.waitForChainStart(ctx)
+}
+
+func (c *beaconApiValidatorClient) StartEventStream(ctx context.Context) error {
+	if c.eventHandler != nil {
+		if err := c.eventHandler.get(ctx, []string{"head"}); err != nil {
+			return errors.Wrapf(err, "could not invoke event handler")
+		}
+	}
+	return nil
+}
+
+func (c *beaconApiValidatorClient) EventStreamIsRunning() bool {
+	return c.eventHandler.running
+}
+
+func (c *beaconApiValidatorClient) GetAggregatedSelections(ctx context.Context, selections []iface.BeaconCommitteeSelection) ([]iface.BeaconCommitteeSelection, error) {
+	return c.getAggregatedSelection(ctx, selections)
 }

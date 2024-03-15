@@ -7,14 +7,14 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/prysmaticlabs/prysm/v4/consensus-types/primitives"
-	"github.com/prysmaticlabs/prysm/v4/testing/assert"
-	"github.com/prysmaticlabs/prysm/v4/testing/require"
-	"github.com/prysmaticlabs/prysm/v4/validator/db/kv"
-	dbtest "github.com/prysmaticlabs/prysm/v4/validator/db/testing"
-	history "github.com/prysmaticlabs/prysm/v4/validator/slashing-protection-history"
-	"github.com/prysmaticlabs/prysm/v4/validator/slashing-protection-history/format"
-	slashtest "github.com/prysmaticlabs/prysm/v4/validator/testing"
+	"github.com/prysmaticlabs/prysm/v5/consensus-types/primitives"
+	"github.com/prysmaticlabs/prysm/v5/testing/assert"
+	"github.com/prysmaticlabs/prysm/v5/testing/require"
+	"github.com/prysmaticlabs/prysm/v5/validator/db/kv"
+	dbtest "github.com/prysmaticlabs/prysm/v5/validator/db/testing"
+	history "github.com/prysmaticlabs/prysm/v5/validator/slashing-protection-history"
+	"github.com/prysmaticlabs/prysm/v5/validator/slashing-protection-history/format"
+	slashtest "github.com/prysmaticlabs/prysm/v5/validator/testing"
 )
 
 func TestImportExport_RoundTrip(t *testing.T) {
@@ -207,10 +207,14 @@ func TestImportInterchangeData_OK(t *testing.T) {
 
 		wantedAttsByRoot := make(map[[32]byte]*kv.AttestationRecord)
 		for _, att := range attestingHistory[i] {
-			wantedAttsByRoot[att.SigningRoot] = att
+			var signingRoot [32]byte
+			copy(signingRoot[:], att.SigningRoot)
+			wantedAttsByRoot[signingRoot] = att
 		}
 		for _, att := range receivedAttestingHistory {
-			wantedAtt, ok := wantedAttsByRoot[att.SigningRoot]
+			var signingRoot [32]byte
+			copy(signingRoot[:], att.SigningRoot)
+			wantedAtt, ok := wantedAttsByRoot[signingRoot]
 			require.Equal(t, true, ok)
 			require.DeepEqual(t, wantedAtt, att)
 		}

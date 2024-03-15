@@ -6,10 +6,10 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
-	fieldparams "github.com/prysmaticlabs/prysm/v4/config/fieldparams"
-	ethpb "github.com/prysmaticlabs/prysm/v4/proto/prysm/v1alpha1"
-	"github.com/prysmaticlabs/prysm/v4/proto/prysm/v1alpha1/slashings"
-	"github.com/prysmaticlabs/prysm/v4/validator/db/kv"
+	fieldparams "github.com/prysmaticlabs/prysm/v5/config/fieldparams"
+	ethpb "github.com/prysmaticlabs/prysm/v5/proto/prysm/v1alpha1"
+	"github.com/prysmaticlabs/prysm/v5/proto/prysm/v1alpha1/slashings"
+	"github.com/prysmaticlabs/prysm/v5/validator/db/kv"
 	"go.opencensus.io/trace"
 )
 
@@ -22,10 +22,12 @@ func (v *validator) slashableAttestationCheck(
 	ctx context.Context,
 	indexedAtt *ethpb.IndexedAttestation,
 	pubKey [fieldparams.BLSPubkeyLength]byte,
-	signingRoot [32]byte,
+	signingRoot32 [32]byte,
 ) error {
 	ctx, span := trace.StartSpan(ctx, "validator.postAttSignUpdate")
 	defer span.End()
+
+	signingRoot := signingRoot32[:]
 
 	// Based on EIP3076, validator should refuse to sign any attestation with source epoch less
 	// than the minimum source epoch present in that signer’s attestations.
@@ -76,7 +78,7 @@ func (v *validator) slashableAttestationCheck(
 		return errors.Wrap(err, failedAttLocalProtectionErr)
 	}
 
-	if err := v.db.SaveAttestationForPubKey(ctx, pubKey, signingRoot, indexedAtt); err != nil {
+	if err := v.db.SaveAttestationForPubKey(ctx, pubKey, signingRoot32, indexedAtt); err != nil {
 		return errors.Wrap(err, "could not save attestation history for validator public key")
 	}
 

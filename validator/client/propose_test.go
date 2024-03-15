@@ -8,25 +8,25 @@ import (
 	"testing"
 
 	"github.com/golang/mock/gomock"
-	"github.com/prysmaticlabs/prysm/v4/beacon-chain/core/signing"
-	lruwrpr "github.com/prysmaticlabs/prysm/v4/cache/lru"
-	fieldparams "github.com/prysmaticlabs/prysm/v4/config/fieldparams"
-	"github.com/prysmaticlabs/prysm/v4/config/params"
-	"github.com/prysmaticlabs/prysm/v4/consensus-types/blocks"
-	blocktest "github.com/prysmaticlabs/prysm/v4/consensus-types/blocks/testing"
-	"github.com/prysmaticlabs/prysm/v4/consensus-types/interfaces"
-	"github.com/prysmaticlabs/prysm/v4/consensus-types/primitives"
-	"github.com/prysmaticlabs/prysm/v4/crypto/bls"
-	"github.com/prysmaticlabs/prysm/v4/encoding/bytesutil"
-	ethpb "github.com/prysmaticlabs/prysm/v4/proto/prysm/v1alpha1"
-	validatorpb "github.com/prysmaticlabs/prysm/v4/proto/prysm/v1alpha1/validator-client"
-	"github.com/prysmaticlabs/prysm/v4/runtime/version"
-	"github.com/prysmaticlabs/prysm/v4/testing/assert"
-	"github.com/prysmaticlabs/prysm/v4/testing/require"
-	"github.com/prysmaticlabs/prysm/v4/testing/util"
-	validatormock "github.com/prysmaticlabs/prysm/v4/testing/validator-mock"
-	testing2 "github.com/prysmaticlabs/prysm/v4/validator/db/testing"
-	"github.com/prysmaticlabs/prysm/v4/validator/graffiti"
+	"github.com/prysmaticlabs/prysm/v5/beacon-chain/core/signing"
+	lruwrpr "github.com/prysmaticlabs/prysm/v5/cache/lru"
+	fieldparams "github.com/prysmaticlabs/prysm/v5/config/fieldparams"
+	"github.com/prysmaticlabs/prysm/v5/config/params"
+	"github.com/prysmaticlabs/prysm/v5/consensus-types/blocks"
+	blocktest "github.com/prysmaticlabs/prysm/v5/consensus-types/blocks/testing"
+	"github.com/prysmaticlabs/prysm/v5/consensus-types/interfaces"
+	"github.com/prysmaticlabs/prysm/v5/consensus-types/primitives"
+	"github.com/prysmaticlabs/prysm/v5/crypto/bls"
+	"github.com/prysmaticlabs/prysm/v5/encoding/bytesutil"
+	ethpb "github.com/prysmaticlabs/prysm/v5/proto/prysm/v1alpha1"
+	validatorpb "github.com/prysmaticlabs/prysm/v5/proto/prysm/v1alpha1/validator-client"
+	"github.com/prysmaticlabs/prysm/v5/runtime/version"
+	"github.com/prysmaticlabs/prysm/v5/testing/assert"
+	"github.com/prysmaticlabs/prysm/v5/testing/require"
+	"github.com/prysmaticlabs/prysm/v5/testing/util"
+	validatormock "github.com/prysmaticlabs/prysm/v5/testing/validator-mock"
+	testing2 "github.com/prysmaticlabs/prysm/v5/validator/db/testing"
+	"github.com/prysmaticlabs/prysm/v5/validator/graffiti"
 	logTest "github.com/sirupsen/logrus/hooks/test"
 )
 
@@ -88,7 +88,8 @@ func setupWithKey(t *testing.T, validatorKey bls.SecretKey) (*validator, *mocks,
 		keyManager:                     newMockKeymanager(t, keypair{pub: pubKey, pri: validatorKey}),
 		validatorClient:                m.validatorClient,
 		graffiti:                       []byte{},
-		attLogs:                        make(map[[32]byte]*attSubmitted),
+		submittedAtts:                  make(map[submittedAttKey]*submittedAtt),
+		submittedAggregates:            make(map[submittedAttKey]*submittedAtt),
 		aggregatedSlotCommitteeIDCache: aggregatedSlotCommitteeIDCache,
 	}
 
@@ -583,75 +584,27 @@ func testProposeBlock(t *testing.T, graffiti []byte) {
 			},
 		},
 		{
-			name:    "deneb block and blobs",
+			name:    "deneb block",
 			version: version.Deneb,
 			block: &ethpb.GenericBeaconBlock{
 				Block: &ethpb.GenericBeaconBlock_Deneb{
-					Deneb: func() *ethpb.BeaconBlockAndBlobsDeneb {
-						blk := util.NewBeaconBlockDeneb()
-						blk.Block.Body.Graffiti = graffiti
-						return &ethpb.BeaconBlockAndBlobsDeneb{
-							Block: blk.Block,
-							Blobs: []*ethpb.BlobSidecar{
-								{
-									BlockRoot:       bytesutil.PadTo([]byte("blockRoot"), 32),
-									Index:           1,
-									Slot:            2,
-									BlockParentRoot: bytesutil.PadTo([]byte("blockParentRoot"), 32),
-									ProposerIndex:   3,
-									Blob:            bytesutil.PadTo([]byte("blob"), fieldparams.BlobLength),
-									KzgCommitment:   bytesutil.PadTo([]byte("kzgCommitment"), 48),
-									KzgProof:        bytesutil.PadTo([]byte("kzgPRoof"), 48),
-								},
-								{
-									BlockRoot:       bytesutil.PadTo([]byte("blockRoot1"), 32),
-									Index:           4,
-									Slot:            5,
-									BlockParentRoot: bytesutil.PadTo([]byte("blockParentRoot1"), 32),
-									ProposerIndex:   6,
-									Blob:            bytesutil.PadTo([]byte("blob1"), fieldparams.BlobLength),
-									KzgCommitment:   bytesutil.PadTo([]byte("kzgCommitment1"), 48),
-									KzgProof:        bytesutil.PadTo([]byte("kzgPRoof1"), 48),
-								},
-							},
-						}
+					Deneb: func() *ethpb.BeaconBlockContentsDeneb {
+						blk := util.NewBeaconBlockContentsDeneb()
+						blk.Block.Block.Body.Graffiti = graffiti
+						return &ethpb.BeaconBlockContentsDeneb{Block: blk.Block.Block, KzgProofs: blk.KzgProofs, Blobs: blk.Blobs}
 					}(),
 				},
 			},
 		},
 		{
-			name:    "deneb blind block and blobs",
+			name:    "deneb blind block",
 			version: version.Deneb,
 			block: &ethpb.GenericBeaconBlock{
 				Block: &ethpb.GenericBeaconBlock_BlindedDeneb{
-					BlindedDeneb: func() *ethpb.BlindedBeaconBlockAndBlobsDeneb {
+					BlindedDeneb: func() *ethpb.BlindedBeaconBlockDeneb {
 						blk := util.NewBlindedBeaconBlockDeneb()
 						blk.Message.Body.Graffiti = graffiti
-						return &ethpb.BlindedBeaconBlockAndBlobsDeneb{
-							Block: blk.Message,
-							Blobs: []*ethpb.BlindedBlobSidecar{
-								{
-									BlockRoot:       bytesutil.PadTo([]byte("blockRoot"), 32),
-									Index:           1,
-									Slot:            2,
-									BlockParentRoot: bytesutil.PadTo([]byte("blockParentRoot"), 32),
-									ProposerIndex:   3,
-									BlobRoot:        bytesutil.PadTo([]byte("blobRoot"), 32),
-									KzgCommitment:   bytesutil.PadTo([]byte("kzgCommitment"), 48),
-									KzgProof:        bytesutil.PadTo([]byte("kzgPRoof"), 48),
-								},
-								{
-									BlockRoot:       bytesutil.PadTo([]byte("blockRoot1"), 32),
-									Index:           4,
-									Slot:            5,
-									BlockParentRoot: bytesutil.PadTo([]byte("blockParentRoot1"), 32),
-									ProposerIndex:   6,
-									BlobRoot:        bytesutil.PadTo([]byte("blobRoot1"), 32),
-									KzgCommitment:   bytesutil.PadTo([]byte("kzgCommitment1"), 48),
-									KzgProof:        bytesutil.PadTo([]byte("kzgPRoof1"), 48),
-								},
-							},
-						}
+						return blk.Message
 					}(),
 				},
 			},
@@ -690,31 +643,12 @@ func testProposeBlock(t *testing.T, graffiti []byte) {
 			var sentBlock interfaces.ReadOnlySignedBeaconBlock
 			var err error
 
-			if tt.version == version.Deneb {
-				m.validatorClient.EXPECT().DomainData(
-					gomock.Any(), // ctx
-					gomock.Any(), // epoch
-				).Return(&ethpb.DomainResponse{SignatureDomain: make([]byte, 32)}, nil /*err*/)
-				m.validatorClient.EXPECT().DomainData(
-					gomock.Any(), // ctx
-					gomock.Any(), // epoch
-				).Return(&ethpb.DomainResponse{SignatureDomain: make([]byte, 32)}, nil /*err*/)
-			}
-
 			m.validatorClient.EXPECT().ProposeBeaconBlock(
 				gomock.Any(), // ctx
 				gomock.AssignableToTypeOf(&ethpb.GenericSignedBeaconBlock{}),
 			).DoAndReturn(func(ctx context.Context, block *ethpb.GenericSignedBeaconBlock) (*ethpb.ProposeResponse, error) {
 				sentBlock, err = blocktest.NewSignedBeaconBlockFromGeneric(block)
-				assert.NoError(t, err, "Unexpected error unwrapping block")
-				if tt.version == version.Deneb {
-					switch {
-					case tt.name == "deneb block and blobs":
-						require.Equal(t, 2, len(block.GetDeneb().Blobs))
-					case tt.name == "deneb blind block and blobs":
-						require.Equal(t, 2, len(block.GetBlindedDeneb().SignedBlindedBlobSidecars))
-					}
-				}
+				require.NoError(t, err)
 				return &ethpb.ProposeResponse{BlockRoot: make([]byte, 32)}, nil
 			})
 
@@ -963,7 +897,7 @@ func TestGetGraffiti_Ok(t *testing.T) {
 					},
 				},
 			},
-			want: []byte{'b'},
+			want: bytesutil.PadTo([]byte{'b'}, 32),
 		},
 		{name: "use default file graffiti",
 			v: &validator{
@@ -972,7 +906,7 @@ func TestGetGraffiti_Ok(t *testing.T) {
 					Default: "c",
 				},
 			},
-			want: []byte{'c'},
+			want: bytesutil.PadTo([]byte{'c'}, 32),
 		},
 		{name: "use random file graffiti",
 			v: &validator{
@@ -982,7 +916,7 @@ func TestGetGraffiti_Ok(t *testing.T) {
 					Default: "c",
 				},
 			},
-			want: []byte{'d'},
+			want: bytesutil.PadTo([]byte{'d'}, 32),
 		},
 		{name: "use validator file graffiti, has validator",
 			v: &validator{
@@ -996,7 +930,7 @@ func TestGetGraffiti_Ok(t *testing.T) {
 					},
 				},
 			},
-			want: []byte{'g'},
+			want: bytesutil.PadTo([]byte{'g'}, 32),
 		},
 		{name: "use validator file graffiti, none specified",
 			v: &validator{
@@ -1041,7 +975,7 @@ func TestGetGraffitiOrdered_Ok(t *testing.T) {
 			Default: "d",
 		},
 	}
-	for _, want := range [][]byte{{'a'}, {'b'}, {'c'}, {'d'}, {'d'}} {
+	for _, want := range [][]byte{bytesutil.PadTo([]byte{'a'}, 32), bytesutil.PadTo([]byte{'b'}, 32), bytesutil.PadTo([]byte{'c'}, 32), bytesutil.PadTo([]byte{'d'}, 32), bytesutil.PadTo([]byte{'d'}, 32)} {
 		got, err := v.getGraffiti(context.Background(), pubKey)
 		require.NoError(t, err)
 		require.DeepEqual(t, want, got)

@@ -5,9 +5,9 @@ import (
 
 	"github.com/golang/protobuf/ptypes/empty"
 	"github.com/pkg/errors"
-	"github.com/prysmaticlabs/prysm/v4/consensus-types/primitives"
-	ethpb "github.com/prysmaticlabs/prysm/v4/proto/prysm/v1alpha1"
-	"github.com/prysmaticlabs/prysm/v4/validator/client/iface"
+	"github.com/prysmaticlabs/prysm/v5/consensus-types/primitives"
+	ethpb "github.com/prysmaticlabs/prysm/v5/proto/prysm/v1alpha1"
+	"github.com/prysmaticlabs/prysm/v5/validator/client/iface"
 	"google.golang.org/grpc"
 )
 
@@ -69,6 +69,10 @@ func (c *grpcValidatorClient) ProposeBeaconBlock(ctx context.Context, in *ethpb.
 
 func (c *grpcValidatorClient) ProposeExit(ctx context.Context, in *ethpb.SignedVoluntaryExit) (*ethpb.ProposeExitResponse, error) {
 	return c.beaconNodeValidatorClient.ProposeExit(ctx, in)
+}
+
+func (c *grpcValidatorClient) StreamSlots(ctx context.Context, in *ethpb.StreamSlotsRequest) (ethpb.BeaconNodeValidator_StreamSlotsClient, error) {
+	return c.beaconNodeValidatorClient.StreamSlots(ctx, in)
 }
 
 func (c *grpcValidatorClient) StreamBlocksAltair(ctx context.Context, in *ethpb.StreamBlocksRequest) (ethpb.BeaconNodeValidator_StreamBlocksAltairClient, error) {
@@ -134,6 +138,18 @@ func (c *grpcValidatorClient) AggregatedSigAndAggregationBits(
 	return c.beaconNodeValidatorClient.AggregatedSigAndAggregationBits(ctx, in)
 }
 
+func (grpcValidatorClient) GetAggregatedSelections(context.Context, []iface.BeaconCommitteeSelection) ([]iface.BeaconCommitteeSelection, error) {
+	return nil, iface.ErrNotSupported
+}
+
 func NewGrpcValidatorClient(cc grpc.ClientConnInterface) iface.ValidatorClient {
 	return &grpcValidatorClient{ethpb.NewBeaconNodeValidatorClient(cc)}
+}
+
+func (c *grpcValidatorClient) StartEventStream(context.Context) error {
+	panic("function not supported for gRPC client")
+}
+
+func (c *grpcValidatorClient) EventStreamIsRunning() bool {
+	panic("function not supported for gRPC client")
 }
